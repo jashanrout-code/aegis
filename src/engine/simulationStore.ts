@@ -9,6 +9,7 @@ import {
   ZoneState, 
   ZoneConfig, 
   FSMState, 
+  FSMTransitionRecord,
   IncidentRecord, 
   SimulationEvent, 
   EvacuationRouteResult,
@@ -120,6 +121,9 @@ export interface FaultInjectionState {
 export interface SimulationState {
   zones: Record<ZoneId, ZoneState>;
   fsmState: FSMState;
+  previousFSMState: FSMState;
+  lastFSMTransition: FSMTransitionRecord | null;
+  fsmTransitionHistory: FSMTransitionRecord[];
   incidents: IncidentRecord[];
   events: SimulationEvent[];
   selectedZoneId: ZoneId | null;
@@ -181,6 +185,9 @@ class SimulationStore {
     return {
       zones,
       fsmState: 'NORMAL',
+      previousFSMState: 'NORMAL',
+      lastFSMTransition: null,
+      fsmTransitionHistory: [],
       incidents: [],
       events: [
         {
@@ -355,10 +362,61 @@ class SimulationStore {
       if (s.manualEmergency) anyManualPull = true;
 
       // Check incident lifecycle for zone
-      if (isCritical && !z.activeIncidentId) {
-        this.createIncidentForZone(zId, 'CRITICAL', primaryEval.booleanExpression);
-      } else if (isWarning && !z.activeIncidentId) {
-        this.createIncidentForZone(zId, 'MEDIUM', 'Pre-alarm warning condition');
+      if (isCritical) {
+        if (!z.activeIncidentId) {
+          this.createIncidentForZone(zId, 'CRITICAL', primaryEval.booleanExpression);
+        } else {
+          // Prevent duplicate incidents: escalate existing incident if it was warning
+          const existing = this.state.incidents.find(i => i.id === z.activeIncidentId);
+          if (existing && existing.severity !== 'CRITICAL') {
+            existing.severity = 'CRITICAL';
+            existing.title = `${z.config.name}: Alarm Stage 2 Emergency`;
+            existing.triggeringInputs = { ...s };
+            existing.calculatedOutputs = { ...z.outputs };
+            existing.fsmStateSnapshot = this.state.fsmState;
+            existing.historyTimeline.push({
+              timestamp: Date.now(),
+              action: 'Incident Escalated to Critical Confluence',
+              description: `Logic rule tripped: ${primaryEval.booleanExpression}`,
+              user: 'AEGIS Controller Engine',
+            });
+            this.addEvent({
+              category: 'ALARM',
+              zoneId: zId,
+              title: `Incident ${existing.id} Escalated`,
+              details: `Critical confluence: ${primaryEval.booleanExpression}`,
+              severity: 'CRITICAL',
+            });
+          } else if (existing) {
+            existing.triggeringInputs = { ...s };
+            existing.calculatedOutputs = { ...z.outputs };
+          }
+        }
+      } else if (isWarning) {
+        if (!z.activeIncidentId) {
+          this.createIncidentForZone(zId, 'MEDIUM', 'Pre-alarm warning condition');
+        } else {
+          const existing = this.state.incidents.find(i => i.id === z.activeIncidentId);
+          if (existing) {
+            existing.triggeringInputs = { ...s };
+            existing.calculatedOutputs = { ...z.outputs };
+          }
+        }
+      } else {
+        // Physical sensors nominal in this zone
+        if (z.activeIncidentId) {
+          const existing = this.state.incidents.find(i => i.id === z.activeIncidentId);
+          if (existing && (existing.status === 'DETECTED' || existing.status === 'ACTIVE')) {
+            existing.status = 'CONDITION_CLEARED';
+            existing.clearedAt = Date.now();
+            existing.historyTimeline.push({
+              timestamp: Date.now(),
+              action: 'Hazard Cleared (Sensors Normalized)',
+              description: 'Sensors in zone returned below trip thresholds',
+              user: 'Safety Verification Subsystem',
+            });
+          }
+        }
       }
 
       z.sensors = s;
@@ -391,7 +449,23 @@ class SimulationStore {
     });
 
     if (fsmResult.toState !== previousFSM) {
+      const transitionRecord: FSMTransitionRecord = {
+        fromState: previousFSM,
+        toState: fsmResult.toState,
+        reason: fsmResult.reason,
+        timestamp: Date.now(),
+        simTime: this.state.uptimeSeconds,
+        triggeringZoneId: hazardZones[0],
+      };
+
+      this.state.previousFSMState = previousFSM;
       this.state.fsmState = fsmResult.toState;
+      this.state.lastFSMTransition = transitionRecord;
+      this.state.fsmTransitionHistory.unshift(transitionRecord);
+      if (this.state.fsmTransitionHistory.length > 25) {
+        this.state.fsmTransitionHistory.pop();
+      }
+
       this.addEvent({
         category: 'CONTROLLER',
         title: `Controller State: ${previousFSM} ➔ ${fsmResult.toState}`,
@@ -439,6 +513,8 @@ class SimulationStore {
       timestamp: Date.now(),
       simTime: this.state.uptimeSeconds,
       fsmState: this.state.fsmState,
+      previousFSMState: this.state.previousFSMState,
+      lastFSMTransition: this.state.lastFSMTransition ? { ...this.state.lastFSMTransition } : null,
       zones: zoneSnapshots,
       affectedZones: hazardZones,
       activeIncidentId: this.state.selectedIncidentId,

@@ -15,69 +15,111 @@ export const XNOR = (a: boolean, b: boolean): boolean => !XOR(a, b);
 
 /**
  * Primary Control Function specified in project specification:
- * A = S AND (H OR M)
+ * E = S AND (T OR M)   [also known as A = S AND (H OR M)]
  * 
  * Where:
  * S = Simulated Smoke input
- * H = High-Temperature condition
- * M = Manual emergency pull input
- * A = Simulated Alarm Stage 2 (Emergency Evacuation)
+ * T = Simulated High-Temperature condition (H)
+ * M = Simulated Manual emergency pull input
+ * E = Calculated Emergency output (A)
  */
-export function evaluatePrimaryAlarmRule(smoke: boolean, highTemp: boolean, manualEmergency: boolean): {
+export interface BooleanLogicEvaluation {
+  emergencyOutput: boolean;
   alarmOutput: boolean;
   intermediateOr: boolean;
   distributiveCheck: boolean;
   booleanExpression: string;
-} {
-  const intermediateOr = OR(highTemp, manualEmergency);
-  const alarmOutput = AND(smoke, intermediateOr);
-  
-  // Distributive law verification: S AND (H OR M) === (S AND H) OR (S AND M)
-  const distributiveCheck = OR(AND(smoke, highTemp), AND(smoke, manualEmergency));
-
-  return {
-    alarmOutput,
-    intermediateOr,
-    distributiveCheck,
-    booleanExpression: `A = ${smoke ? '1' : '0'} ∧ (${highTemp ? '1' : '0'} ∨ ${manualEmergency ? '1' : '0'}) = ${alarmOutput ? '1' : '0'}`,
+  formulaText: string;
+  inputs: {
+    smoke: boolean;
+    tempHigh: boolean;
+    manualEmergency: boolean;
   };
 }
 
+export function evaluateEmergencyLogic(
+  smoke: boolean,
+  tempHigh: boolean,
+  manualEmergency: boolean
+): BooleanLogicEvaluation {
+  const intermediateOr = OR(tempHigh, manualEmergency);
+  const emergencyOutput = AND(smoke, intermediateOr);
+  
+  // Distributive law verification: S AND (T OR M) === (S AND T) OR (S AND M)
+  const distributiveCheck = OR(AND(smoke, tempHigh), AND(smoke, manualEmergency));
+
+  return {
+    emergencyOutput,
+    alarmOutput: emergencyOutput,
+    intermediateOr,
+    distributiveCheck,
+    booleanExpression: `E = ${smoke ? '1' : '0'} ∧ (${tempHigh ? '1' : '0'} ∨ ${manualEmergency ? '1' : '0'}) = ${emergencyOutput ? '1' : '0'}`,
+    formulaText: 'E = S ∧ (T ∨ M)',
+    inputs: {
+      smoke,
+      tempHigh,
+      manualEmergency,
+    },
+  };
+}
+
+export function evaluatePrimaryAlarmRule(smoke: boolean, highTemp: boolean, manualEmergency: boolean): {
+  alarmOutput: boolean;
+  emergencyOutput: boolean;
+  intermediateOr: boolean;
+  distributiveCheck: boolean;
+  booleanExpression: string;
+  formulaText: string;
+  inputs: {
+    smoke: boolean;
+    tempHigh: boolean;
+    manualEmergency: boolean;
+  };
+} {
+  return evaluateEmergencyLogic(smoke, highTemp, manualEmergency);
+}
+
 /**
- * Truth table generator for the primary control function: A = S AND (H OR M)
+ * Truth table generator for the primary control function: E = S AND (T OR M)
  * Generates all 2^3 = 8 combinations with verified outputs.
  */
 export interface TruthTableRow {
+  rowNumber: number;
   smoke: boolean;
   highTemp: boolean;
+  temp: boolean;
   manual: boolean;
   orResult: boolean;
   alarmOutput: boolean;
-  minterm: string; // e.g. "m5: S·H'·M"
+  emergencyOutput: boolean;
+  minterm: string; // e.g. "m5: S·T'·M"
 }
 
 export function generatePrimaryTruthTable(): TruthTableRow[] {
   const rows: TruthTableRow[] = [];
   
-  // 8 combinations: 000 through 111
+  // 8 combinations: 000 through 111 (m0 to m7)
   for (let s = 0; s <= 1; s++) {
-    for (let h = 0; h <= 1; h++) {
+    for (let t = 0; t <= 1; t++) {
       for (let m = 0; m <= 1; m++) {
         const smoke = s === 1;
-        const highTemp = h === 1;
+        const highTemp = t === 1;
         const manual = m === 1;
         const orResult = OR(highTemp, manual);
-        const alarmOutput = AND(smoke, orResult);
-        const index = (s << 2) | (h << 1) | m;
+        const emergencyOutput = AND(smoke, orResult);
+        const index = (s << 2) | (t << 1) | m;
         
-        const minterm = `m${index}: ${smoke ? 'S' : "S'"}·${highTemp ? 'H' : "H'"}·${manual ? 'M' : "M'"}`;
+        const minterm = `m${index}: ${smoke ? 'S' : "S'"}·${highTemp ? 'T' : "T'"}·${manual ? 'M' : "M'"}`;
         
         rows.push({
+          rowNumber: index,
           smoke,
           highTemp,
+          temp: highTemp,
           manual,
           orResult,
-          alarmOutput,
+          alarmOutput: emergencyOutput,
+          emergencyOutput,
           minterm,
         });
       }

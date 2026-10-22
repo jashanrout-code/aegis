@@ -60,6 +60,15 @@ export type FSMState =
   | 'FAULT'             // Telemetry parity error or sensor stuck
   | 'OVERRIDE';         // Authorized manual supervisor override
 
+export interface FSMTransitionRecord {
+  fromState: FSMState;
+  toState: FSMState;
+  reason: string;
+  timestamp: number;
+  simTime: number;
+  triggeringZoneId?: ZoneId;
+}
+
 export type IncidentStatus = 
   | 'DETECTED'
   | 'ACTIVE'
@@ -119,6 +128,8 @@ export interface HistorySnapshot {
   timestamp: number;
   simTime: number;
   fsmState: FSMState;
+  previousFSMState?: FSMState;
+  lastFSMTransition?: FSMTransitionRecord | null;
   zones: Record<ZoneId, {
     sensors: ZoneSensors;
     outputs: ZoneLogicOutputs;

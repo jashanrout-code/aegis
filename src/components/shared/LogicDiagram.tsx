@@ -41,7 +41,8 @@ export const LogicDiagram: React.FC<LogicDiagramProps> = ({
       <div className="text-xs text-slate-300 mb-4 bg-industrial-950/80 p-2.5 rounded border border-industrial-800/80 flex items-center justify-between">
         <div>
           <span className="text-slate-400">Function: </span>
-          <span className="text-cyan-neon font-bold">A = S ∧ (H ∨ M)</span>
+          <span className="text-cyan-neon font-bold">E = S ∧ (T ∨ M)</span>
+          <span className="text-[10px] text-slate-500 ml-1.5">[A = S ∧ (H ∨ M)]</span>
         </div>
         <div className="text-[11px]">
           <span className="text-slate-400">Current Evaluation: </span>
@@ -63,14 +64,14 @@ export const LogicDiagram: React.FC<LogicDiagramProps> = ({
           {/* H (High Temp) Line */}
           <line x1="40" y1="130" x2="160" y2="130" stroke={highTemp ? '#f59e0b' : '#334155'} strokeWidth="3" />
           <circle cx="40" cy="130" r="5" fill={highTemp ? '#f59e0b' : '#334155'} />
-          <text x="50" y="124" fill={highTemp ? '#f59e0b' : '#94a3b8'} fontWeight="bold">H (Temp): {highTemp ? '1' : '0'}</text>
+          <text x="50" y="124" fill={highTemp ? '#f59e0b' : '#94a3b8'} fontWeight="bold">T (Temp): {highTemp ? '1' : '0'}</text>
 
           {/* M (Manual Emergency) Line */}
           <line x1="40" y1="180" x2="160" y2="180" stroke={manualEmergency ? '#ef4444' : '#334155'} strokeWidth="3" />
           <circle cx="40" cy="180" r="5" fill={manualEmergency ? '#ef4444' : '#334155'} />
           <text x="50" y="174" fill={manualEmergency ? '#ef4444' : '#94a3b8'} fontWeight="bold">M (Manual): {manualEmergency ? '1' : '0'}</text>
 
-          {/* OR Gate Symbol (Inputs H, M) */}
+          {/* OR Gate Symbol (Inputs H/T, M) */}
           <g transform="translate(160, 120)">
             <path
               d="M 0 0 C 20 0 45 10 60 30 C 45 50 20 60 0 60 C 15 40 15 20 0 0 Z"
@@ -110,7 +111,7 @@ export const LogicDiagram: React.FC<LogicDiagramProps> = ({
             <text x="14" y="35" fill="#e2e8f0" fontSize="12" fontWeight="bold">AND</text>
           </g>
 
-          {/* Output Line A */}
+          {/* Output Line E / A */}
           <line 
             x1="370" y1="70" x2="460" y2="70" 
             stroke={evaluation.alarmOutput ? '#ef4444' : '#10b981'} 
@@ -118,12 +119,12 @@ export const LogicDiagram: React.FC<LogicDiagramProps> = ({
           />
           <circle cx="460" cy="70" r="7" fill={evaluation.alarmOutput ? '#ef4444' : '#10b981'} />
           <text 
-            x="400" y="60" 
+            x="395" y="60" 
             fill={evaluation.alarmOutput ? '#ef4444' : '#10b981'} 
             fontWeight="bold" 
             fontSize="13"
           >
-            Output A: {evaluation.alarmOutput ? '1 (ALARM)' : '0 (CLEAR)'}
+            Output E: {evaluation.alarmOutput ? '1 (EMERGENCY)' : '0 (CLEAR)'}
           </text>
         </svg>
       </div>

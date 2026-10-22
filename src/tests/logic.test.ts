@@ -219,3 +219,101 @@ describe('5. Facility Evacuation Route Calculation', () => {
     expect(route.waypoints.length).toBeGreaterThan(0);
   });
 });
+
+describe('6. Digital Electronics E = S AND (T OR M) Function & Truth Table Verification', () => {
+  it('evaluates all 8 combinations of E = S AND (T OR M) strictly according to Boolean algebra', () => {
+    const expectedTable = [
+      { s: false, t: false, m: false, or: false, e: false }, // m0: 000
+      { s: false, t: false, m: true,  or: true,  e: false }, // m1: 001
+      { s: false, t: true,  m: false, or: true,  e: false }, // m2: 010
+      { s: false, t: true,  m: true,  or: true,  e: false }, // m3: 011
+      { s: true,  t: false, m: false, or: false, e: false }, // m4: 100
+      { s: true,  t: false, m: true,  or: true,  e: true  }, // m5: 101
+      { s: true,  t: true,  m: false, or: true,  e: true  }, // m6: 110
+      { s: true,  t: true,  m: true,  or: true,  e: true  }, // m7: 111
+    ];
+
+    expectedTable.forEach(testCase => {
+      const res = evaluatePrimaryAlarmRule(testCase.s, testCase.t, testCase.m);
+      expect(res.intermediateOr).toBe(testCase.or);
+      expect(res.emergencyOutput).toBe(testCase.e);
+      expect(res.alarmOutput).toBe(testCase.e);
+      expect(res.distributiveCheck).toBe(testCase.e);
+    });
+  });
+
+  it('generates a truth table with all 8 rows matching the implemented function and minterms', () => {
+    const table = generatePrimaryTruthTable();
+    expect(table).toHaveLength(8);
+
+    table.forEach(row => {
+      const manualEval = row.smoke && (row.temp || row.manual);
+      expect(row.emergencyOutput).toBe(manualEval);
+      expect(row.alarmOutput).toBe(manualEval);
+      expect(row.orResult).toBe(row.temp || row.manual);
+      expect(row.rowNumber).toBeGreaterThanOrEqual(0);
+      expect(row.rowNumber).toBeLessThanOrEqual(7);
+      expect(row.minterm).toContain(`m${row.rowNumber}`);
+    });
+  });
+});
+
+describe('7. Incident Lifecycle Non-Duplication and FSM Transition Recording', () => {
+  it('prevents duplicate incident creation upon repeated tick evaluations of the same active condition', async () => {
+    const { simulationStore } = await import('../engine/simulationStore');
+    simulationStore.resetSimulation();
+    expect(simulationStore.getState().incidents).toHaveLength(0);
+
+    // Trigger hazard
+    simulationStore.setAnalogLevel('ZONE_STORAGE', 'smokeLevel', 55.0);
+    simulationStore.setAnalogLevel('ZONE_STORAGE', 'temperature', 85.0);
+    expect(simulationStore.getState().incidents).toHaveLength(1);
+
+    // Step simulation multiple ticks with condition still active
+    for (let i = 0; i < 5; i++) {
+      simulationStore.tick();
+    }
+
+    // Must still have only 1 incident record, not 6 duplicate records!
+    expect(simulationStore.getState().incidents).toHaveLength(1);
+  });
+
+  it('tracks previousFSMState, lastFSMTransition and transition history on state changes', async () => {
+    const { simulationStore } = await import('../engine/simulationStore');
+    simulationStore.resetSimulation();
+
+    // From NORMAL, trigger pre-alarm warning
+    simulationStore.setAnalogLevel('ZONE_STORAGE', 'smokeLevel', 40.0);
+    const stateWarn = simulationStore.getState();
+    expect(stateWarn.fsmState).toBe('WARNING');
+    expect(stateWarn.previousFSMState).toBe('NORMAL');
+    expect(stateWarn.lastFSMTransition).toBeDefined();
+    expect(stateWarn.lastFSMTransition?.fromState).toBe('NORMAL');
+    expect(stateWarn.lastFSMTransition?.toState).toBe('WARNING');
+    expect(stateWarn.fsmTransitionHistory.length).toBeGreaterThanOrEqual(1);
+
+    // Escalate to ALARM_STAGE_2
+    simulationStore.triggerEmergencyPull('ZONE_STORAGE');
+    const stateEmergency = simulationStore.getState();
+    expect(stateEmergency.fsmState).toBe('ALARM_STAGE_2');
+    expect(stateEmergency.previousFSMState).toBe('WARNING');
+    expect(stateEmergency.lastFSMTransition?.toState).toBe('ALARM_STAGE_2');
+  });
+
+  it('escalates an existing warning incident to critical without creating a second incident record', async () => {
+    const { simulationStore } = await import('../engine/simulationStore');
+    simulationStore.resetSimulation();
+
+    // 1. Initial single sensor trip -> Stage 1 Warning
+    simulationStore.setAnalogLevel('ZONE_STORAGE', 'smokeLevel', 40.0);
+    const incidents1 = simulationStore.getState().incidents;
+    expect(incidents1).toHaveLength(1);
+    expect(incidents1[0].severity).toBe('MEDIUM');
+
+    // 2. Secondary sensor trip -> Critical Confluence
+    simulationStore.setAnalogLevel('ZONE_STORAGE', 'temperature', 85.0);
+    const incidents2 = simulationStore.getState().incidents;
+    expect(incidents2).toHaveLength(1); // No duplicate!
+    expect(incidents2[0].severity).toBe('CRITICAL');
+  });
+});

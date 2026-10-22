@@ -288,3 +288,35 @@ export function evaluateNextFSMState(
       };
   }
 }
+
+/**
+ * Direct evaluation helper connecting Digital Electronics inputs (S, T, M)
+ * to the FSM state machine with deterministic transitions.
+ */
+export function evaluateFsmFromDEInputs(
+  currentState: FSMState,
+  smoke: boolean,
+  tempHigh: boolean,
+  manualEmergency: boolean,
+  isAcknowledged: boolean = false,
+  recoveryTimerCompleted: boolean = false,
+  resetRequested: boolean = false
+): FSMTransitionResult {
+  const intermediateOr = tempHigh || manualEmergency;
+  const emergencyActive = (smoke && intermediateOr) || manualEmergency;
+  const warningActive = (smoke || tempHigh) && !emergencyActive;
+  const allHazardsCleared = !smoke && !tempHigh && !manualEmergency;
+
+  return evaluateNextFSMState(currentState, {
+    alarmStage2Active: emergencyActive,
+    warningStage1Active: warningActive,
+    manualPullActive: manualEmergency,
+    sensorFaultActive: false,
+    allHazardsCleared,
+    isAcknowledged,
+    recoveryTimerCompleted,
+    supervisorOverride: false,
+    resetRequested,
+  });
+}
+

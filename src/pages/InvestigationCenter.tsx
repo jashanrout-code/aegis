@@ -426,24 +426,24 @@ export const InvestigationCenter: React.FC = () => {
                 </div>
               </div>
 
-              {/* H or M sub-expression */}
+              {/* T or M sub-expression */}
               <div className="p-2.5 rounded bg-industrial-950 border border-industrial-800 text-center space-y-1">
                 <span className="text-[10px] text-slate-500 uppercase">OR Sub-Term</span>
-                <div className="font-bold text-slate-300">H ∨ M</div>
+                <div className="font-bold text-slate-300">T ∨ M</div>
                 <div className={`text-xs font-bold ${logicEval.intermediateOr ? 'text-amber-400' : 'text-slate-500'}`}>
                   {logicEval.intermediateOr ? 'TRUE (1)' : 'FALSE (0)'}
                 </div>
                 <div className="text-[9px] text-slate-500">
-                  H={h ? '1' : '0'} ({temperature.toFixed(1)}°C) | M={m ? '1' : '0'}
+                  T={h ? '1' : '0'} ({temperature.toFixed(1)}°C) | M={m ? '1' : '0'}
                 </div>
               </div>
 
               {/* Final AND result */}
               <div className="p-2.5 rounded bg-industrial-950 border border-industrial-800 text-center space-y-1">
                 <span className="text-[10px] text-slate-500 uppercase">Final Gate</span>
-                <div className="font-bold text-slate-300">A = S ∧ (H ∨ M)</div>
+                <div className="font-bold text-slate-300">E = S ∧ (T ∨ M)</div>
                 <div className={`text-xs font-bold ${logicEval.alarmOutput ? 'text-red-400 animate-pulse' : 'text-emerald-400'}`}>
-                  {logicEval.alarmOutput ? 'ALARM (1)' : 'CLEAR (0)'}
+                  {logicEval.alarmOutput ? 'EMERGENCY (1)' : 'CLEAR (0)'}
                 </div>
                 <div className="text-[9px] text-slate-500">
                   Stage 2 Confluence

@@ -14,15 +14,177 @@ export const XOR = (a: boolean, b: boolean): boolean => (a && !b) || (!a && b);
 export const XNOR = (a: boolean, b: boolean): boolean => !XOR(a, b);
 
 /**
- * Primary Control Function specified in project specification:
- * E = S AND (T OR M)   [also known as A = S AND (H OR M)]
- * 
- * Where:
- * S = Simulated Smoke input
- * T = Simulated High-Temperature condition (H)
- * M = Simulated Manual emergency pull input
- * E = Calculated Emergency output (A)
+ * Universal Gate Equivalence Models:
+ * 1. NAND-only implementation of an OR gate:
+ *    By De Morgan's Law: A OR B = NOT(NOT(A) AND NOT(B))
+ *    - NOT(A) is constructed via NAND(A, A)
+ *    - NOT(B) is constructed via NAND(B, B)
+ *    - Final OR output = NAND(NOT(A), NOT(B))
+ *
+ * 2. NOR-only implementation of an AND gate:
+ *    By De Morgan's Law: A AND B = NOT(NOT(A) OR NOT(B))
+ *    - NOT(A) is constructed via NOR(A, A)
+ *    - NOT(B) is constructed via NOR(B, B)
+ *    - Final AND output = NOR(NOT(A), NOT(B))
  */
+
+export interface UniversalGateEvaluation {
+  circuitType: 'NAND_GATE' | 'NOR_GATE' | 'NAND_ONLY_OR' | 'NOR_ONLY_AND';
+  inputs: { a: boolean; b: boolean };
+  intermediateSignals: {
+    notA?: boolean;
+    notB?: boolean;
+    stage1A?: boolean;
+    stage1B?: boolean;
+  };
+  output: boolean;
+  standardEquivalentOutput: boolean;
+  isEquivalent: boolean;
+  formula: string;
+  deMorganProof: string;
+  explanation: string;
+}
+
+export function evaluateNandGate(a: boolean, b: boolean): UniversalGateEvaluation {
+  const output = NAND(a, b);
+  return {
+    circuitType: 'NAND_GATE',
+    inputs: { a, b },
+    intermediateSignals: {},
+    output,
+    standardEquivalentOutput: output,
+    isEquivalent: true,
+    formula: 'Y = NOT(A AND B) = (A · B)\'',
+    deMorganProof: 'Standard universal NAND gate. Output is LOW (0) only when both inputs are HIGH (1).',
+    explanation: output 
+      ? 'Output is HIGH (1) because at least one input is LOW (0).'
+      : 'Output is LOW (0) because both inputs A and B are HIGH (1).',
+  };
+}
+
+export function evaluateNorGate(a: boolean, b: boolean): UniversalGateEvaluation {
+  const output = NOR(a, b);
+  return {
+    circuitType: 'NOR_GATE',
+    inputs: { a, b },
+    intermediateSignals: {},
+    output,
+    standardEquivalentOutput: output,
+    isEquivalent: true,
+    formula: 'Y = NOT(A OR B) = (A + B)\'',
+    deMorganProof: 'Standard universal NOR gate. Output is HIGH (1) only when both inputs are LOW (0).',
+    explanation: output
+      ? 'Output is HIGH (1) because both inputs A and B are LOW (0).'
+      : 'Output is LOW (0) because at least one input is HIGH (1).',
+  };
+}
+
+export function evaluateNandOnlyOr(a: boolean, b: boolean): UniversalGateEvaluation {
+  // Gate 1: NOT(A) implemented as NAND(A, A)
+  const notA = NAND(a, a);
+  // Gate 2: NOT(B) implemented as NAND(B, B)
+  const notB = NAND(b, b);
+  // Gate 3: Final NAND combining notA and notB
+  const output = NAND(notA, notB);
+  const standardOr = OR(a, b);
+
+  return {
+    circuitType: 'NAND_ONLY_OR',
+    inputs: { a, b },
+    intermediateSignals: {
+      notA,
+      notB,
+      stage1A: notA,
+      stage1B: notB,
+    },
+    output,
+    standardEquivalentOutput: standardOr,
+    isEquivalent: output === standardOr,
+    formula: 'Y = NAND(NAND(A, A), NAND(B, B)) = (A\' · B\')\' = A + B',
+    deMorganProof: 'De Morgan: (A\' · B\')\' = (A\')\' + (B\')\' = A + B. Verified equivalent to OR gate.',
+    explanation: `Inputs A=${a ? 1 : 0}, B=${b ? 1 : 0} produce inverted intermediate signals NOT(A)=${notA ? 1 : 0} and NOT(B)=${notB ? 1 : 0}. Final NAND produces Y=${output ? 1 : 0}, matching standard OR(A,B)=${standardOr ? 1 : 0}.`,
+  };
+}
+
+export function evaluateNorOnlyAnd(a: boolean, b: boolean): UniversalGateEvaluation {
+  // Gate 1: NOT(A) implemented as NOR(A, A)
+  const notA = NOR(a, a);
+  // Gate 2: NOT(B) implemented as NOR(B, B)
+  const notB = NOR(b, b);
+  // Gate 3: Final NOR combining notA and notB
+  const output = NOR(notA, notB);
+  const standardAnd = AND(a, b);
+
+  return {
+    circuitType: 'NOR_ONLY_AND',
+    inputs: { a, b },
+    intermediateSignals: {
+      notA,
+      notB,
+      stage1A: notA,
+      stage1B: notB,
+    },
+    output,
+    standardEquivalentOutput: standardAnd,
+    isEquivalent: output === standardAnd,
+    formula: 'Y = NOR(NOR(A, A), NOR(B, B)) = (A\' + B\')\' = A · B',
+    deMorganProof: 'De Morgan: (A\' + B\')\' = (A\')\' · (B\')\' = A · B. Verified equivalent to AND gate.',
+    explanation: `Inputs A=${a ? 1 : 0}, B=${b ? 1 : 0} produce inverted intermediate signals NOT(A)=${notA ? 1 : 0} and NOT(B)=${notB ? 1 : 0}. Final NOR produces Y=${output ? 1 : 0}, matching standard AND(A,B)=${standardAnd ? 1 : 0}.`,
+  };
+}
+
+export interface UniversalTruthTableRow {
+  rowNumber: number;
+  a: boolean;
+  b: boolean;
+  notA?: boolean;
+  notB?: boolean;
+  output: boolean;
+  standardOutput: boolean;
+  isMatch: boolean;
+}
+
+export function generateUniversalTruthTable(
+  type: 'NAND_GATE' | 'NOR_GATE' | 'NAND_ONLY_OR' | 'NOR_ONLY_AND'
+): UniversalTruthTableRow[] {
+  const rows: UniversalTruthTableRow[] = [];
+  for (let aVal = 0; aVal <= 1; aVal++) {
+    for (let bVal = 0; bVal <= 1; bVal++) {
+      const a = aVal === 1;
+      const b = bVal === 1;
+      const index = (aVal << 1) | bVal;
+
+      let result: UniversalGateEvaluation;
+      switch (type) {
+        case 'NAND_GATE':
+          result = evaluateNandGate(a, b);
+          break;
+        case 'NOR_GATE':
+          result = evaluateNorGate(a, b);
+          break;
+        case 'NAND_ONLY_OR':
+          result = evaluateNandOnlyOr(a, b);
+          break;
+        case 'NOR_ONLY_AND':
+          result = evaluateNorOnlyAnd(a, b);
+          break;
+      }
+
+      rows.push({
+        rowNumber: index,
+        a,
+        b,
+        notA: result.intermediateSignals.notA,
+        notB: result.intermediateSignals.notB,
+        output: result.output,
+        standardOutput: result.standardEquivalentOutput,
+        isMatch: result.isEquivalent,
+      });
+    }
+  }
+  return rows;
+}
+
 export interface BooleanLogicEvaluation {
   emergencyOutput: boolean;
   alarmOutput: boolean;

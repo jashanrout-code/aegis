@@ -7,7 +7,12 @@ import {
   NOT, 
   XOR, 
   NAND, 
-  NOR 
+  NOR,
+  evaluateNandGate,
+  evaluateNorGate,
+  evaluateNandOnlyOr,
+  evaluateNorOnlyAnd,
+  generateUniversalTruthTable
 } from '../logic/gates';
 import { 
   evaluateComparatorWithHysteresis, 
@@ -72,6 +77,62 @@ describe('1. Digital Electronics Core Gates & Boolean Logic', () => {
     // Check row counts: 3 rows should be 1 (m5: 101, m6: 110, m7: 111), 5 rows should be 0
     const activeRows = truthTable.filter(r => r.alarmOutput);
     expect(activeRows).toHaveLength(3);
+  });
+
+  it('evaluates individual NAND and NOR gates and generates exact 4-row truth tables', () => {
+    const nandTable = generateUniversalTruthTable('NAND_GATE');
+    expect(nandTable).toHaveLength(4);
+    // NAND: [0,0]->1, [0,1]->1, [1,0]->1, [1,1]->0
+    expect(nandTable.map(r => r.output)).toEqual([true, true, true, false]);
+
+    const norTable = generateUniversalTruthTable('NOR_GATE');
+    expect(norTable).toHaveLength(4);
+    // NOR: [0,0]->1, [0,1]->0, [1,0]->0, [1,1]->0
+    expect(norTable.map(r => r.output)).toEqual([true, false, false, false]);
+  });
+
+  it('demonstrates NAND-only OR gate equivalence via De Morgan Law: Y = NAND(NAND(A,A), NAND(B,B)) === A OR B', () => {
+    const table = generateUniversalTruthTable('NAND_ONLY_OR');
+    expect(table).toHaveLength(4);
+
+    table.forEach(row => {
+      const standardOr = OR(row.a, row.b);
+      const evalResult = evaluateNandOnlyOr(row.a, row.b);
+
+      // Verify intermediate tied-input NOT gates: NOT(A) = NAND(A,A)
+      expect(evalResult.intermediateSignals.notA).toBe(!row.a);
+      expect(evalResult.intermediateSignals.notB).toBe(!row.b);
+
+      // Verify identical output to standard OR gate
+      expect(evalResult.output).toBe(standardOr);
+      expect(evalResult.isEquivalent).toBe(true);
+      expect(row.isMatch).toBe(true);
+    });
+
+    // Outputs for OR gate: [0,0]->0, [0,1]->1, [1,0]->1, [1,1]->1
+    expect(table.map(r => r.output)).toEqual([false, true, true, true]);
+  });
+
+  it('demonstrates NOR-only AND gate equivalence via De Morgan Law: Y = NOR(NOR(A,A), NOR(B,B)) === A AND B', () => {
+    const table = generateUniversalTruthTable('NOR_ONLY_AND');
+    expect(table).toHaveLength(4);
+
+    table.forEach(row => {
+      const standardAnd = AND(row.a, row.b);
+      const evalResult = evaluateNorOnlyAnd(row.a, row.b);
+
+      // Verify intermediate tied-input NOT gates: NOT(A) = NOR(A,A)
+      expect(evalResult.intermediateSignals.notA).toBe(!row.a);
+      expect(evalResult.intermediateSignals.notB).toBe(!row.b);
+
+      // Verify identical output to standard AND gate
+      expect(evalResult.output).toBe(standardAnd);
+      expect(evalResult.isEquivalent).toBe(true);
+      expect(row.isMatch).toBe(true);
+    });
+
+    // Outputs for AND gate: [0,0]->0, [0,1]->0, [1,0]->0, [1,1]->1
+    expect(table.map(r => r.output)).toEqual([false, false, false, true]);
   });
 });
 

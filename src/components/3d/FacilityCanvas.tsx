@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useMemo } from 'react';
 import { Canvas, useFrame, useThree, extend } from '@react-three/fiber';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as THREE from 'three';
-import { ZoneId, ZoneState, FSMState } from '../../types/simulation';
+import { ZoneId, ZoneState, FSMState, ZoneResponseAction, ResponseActionType } from '../../types/simulation';
 
 // Register native OrbitControls into React Three Fiber JSX
 extend({ OrbitControls });
@@ -529,23 +529,25 @@ function ZoneMesh({ zone, isSelected, onSelect }: ZoneMeshProps) {
   );
 }
 
-// Simulated Smoke Particles
-function SimulatedSmokeParticles({ position }: { position: [number, number, number] }) {
+// Simulated Smoke Particles with dynamic density scaling
+function SimulatedSmokeParticles({ position, smokeLevel = 45 }: { position: [number, number, number]; smokeLevel?: number }) {
   const particlesRef = useRef<THREE.Group>(null);
+  const opacity = Math.min(0.5, Math.max(0.05, (smokeLevel / 100) * 0.6));
+  const scaleFactor = Math.min(1.4, Math.max(0.3, smokeLevel / 40));
 
   useFrame(({ clock }) => {
     if (particlesRef.current) {
       particlesRef.current.children.forEach((child) => {
-        child.position.y += 0.04;
-        child.scale.multiplyScalar(1.008);
+        child.position.y += 0.035;
+        child.scale.multiplyScalar(1.006);
         if (child.position.y > 6.5) {
           child.position.y = 1.0;
           child.position.x = (Math.random() - 0.5) * 2;
           child.position.z = (Math.random() - 0.5) * 2;
-          child.scale.set(1, 1, 1);
+          child.scale.set(scaleFactor, scaleFactor, scaleFactor);
         }
       });
-      particlesRef.current.rotation.y = clock.getElapsedTime() * 0.2;
+      particlesRef.current.rotation.y = clock.getElapsedTime() * 0.15;
     }
   });
 
@@ -554,9 +556,229 @@ function SimulatedSmokeParticles({ position }: { position: [number, number, numb
       {[0, 1, 2, 3, 4, 5, 6].map((i) => (
         <mesh key={i} position={[(i % 3 - 1) * 0.8, 1.2 + i * 0.6, (i % 2 - 0.5) * 0.8]}>
           <sphereGeometry args={[0.6 + i * 0.15, 12, 12]} />
-          <meshStandardMaterial color="#475569" transparent opacity={0.35} roughness={1.0} />
+          <meshStandardMaterial color="#475569" transparent opacity={opacity} roughness={1.0} />
         </mesh>
       ))}
+    </group>
+  );
+}
+
+// 3D Fire Sprinkler System with Animated Water Spray Droplets
+function SprinklerSystem3D({ 
+  zoneId, 
+  position, 
+  dimensions, 
+  isActive, 
+  onSelect 
+}: { 
+  zoneId: ZoneId; 
+  position: [number, number, number]; 
+  dimensions: [number, number, number]; 
+  isActive: boolean; 
+  onSelect?: () => void; 
+}) {
+  const [x, , z] = position;
+  const [w, , d] = dimensions;
+  const dropletsRef = useRef<THREE.Group>(null);
+
+  useFrame(() => {
+    if (isActive && dropletsRef.current) {
+      dropletsRef.current.children.forEach((drop: any, idx: number) => {
+        drop.position.y -= 0.14 + (idx % 4) * 0.02;
+        if (drop.position.y < 0.15) {
+          drop.position.y = 5.1;
+          drop.position.x = ((idx * 1.4) % (w - 1.5)) - (w - 1.5) / 2;
+          drop.position.z = ((idx * 1.8) % (d - 1.5)) - (d - 1.5) / 2;
+        }
+      });
+    }
+  });
+
+  return (
+    <group position={[x, 0, z]}>
+      {/* Overhead Sprinkler Pipe & Nozzles */}
+      <group 
+        position={[0, 5.2, 0]} 
+        onClick={(e) => { 
+          e.stopPropagation(); 
+          onSelect?.(); 
+        }}
+      >
+        <mesh rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.07, 0.07, w - 1.2, 10]} />
+          <meshStandardMaterial color={isActive ? '#38bdf8' : '#dc2626'} metalness={0.7} roughness={0.3} />
+        </mesh>
+        {[-w / 3, 0, w / 3].map((nozzleX, i) => (
+          <group key={i} position={[nozzleX, -0.15, 0]}>
+            <mesh>
+              <cylinderGeometry args={[0.05, 0.07, 0.18, 8]} />
+              <meshStandardMaterial color={isActive ? '#38bdf8' : '#eab308'} metalness={0.9} roughness={0.1} />
+            </mesh>
+            <mesh position={[0, -0.1, 0]}>
+              <coneGeometry args={[0.12, 0.08, 8]} />
+              <meshStandardMaterial color={isActive ? '#00f0ff' : '#ca8a04'} metalness={0.8} />
+            </mesh>
+          </group>
+        ))}
+      </group>
+
+      {/* Animated Water Droplets Spray */}
+      {isActive && (
+        <group ref={dropletsRef}>
+          {Array.from({ length: 32 }).map((_, i) => (
+            <mesh key={i} position={[
+              ((i * 1.4) % (w - 1.5)) - (w - 1.5) / 2, 
+              0.5 + (i * 0.16) % 4.6, 
+              ((i * 1.8) % (d - 1.5)) - (d - 1.5) / 2
+            ]}>
+              <sphereGeometry args={[0.08, 6, 6]} />
+              <meshBasicMaterial color="#38bdf8" transparent opacity={0.75} />
+            </mesh>
+          ))}
+          <pointLight position={[0, 1.5, 0]} color="#38bdf8" intensity={1.8} distance={12} />
+        </group>
+      )}
+    </group>
+  );
+}
+
+// 3D Ventilation Extractor Unit with Rotating Fan Blades and Airflow
+function VentilationExtractor3D({ 
+  zoneId, 
+  position, 
+  isActive, 
+  onSelect 
+}: { 
+  zoneId: ZoneId; 
+  position: [number, number, number]; 
+  isActive: boolean; 
+  onSelect?: () => void; 
+}) {
+  const fanRef = useRef<THREE.Group>(null);
+  const airflowRef = useRef<THREE.Group>(null);
+
+  useFrame(() => {
+    if (fanRef.current && isActive) {
+      fanRef.current.rotation.z += 0.28;
+    }
+    if (airflowRef.current && isActive) {
+      airflowRef.current.children.forEach((p: any) => {
+        p.position.y += 0.05;
+        if (p.position.y > 6.6) {
+          p.position.y = 4.8;
+        }
+      });
+    }
+  });
+
+  return (
+    <group 
+      position={position} 
+      onClick={(e) => { 
+        e.stopPropagation(); 
+        onSelect?.(); 
+      }}
+    >
+      {/* Industrial Vent Ducts */}
+      <mesh position={[0, 5.7, 0]}>
+        <cylinderGeometry args={[0.9, 0.9, 1.2, 16]} />
+        <meshStandardMaterial color={isActive ? '#0284c7' : '#1e293b'} metalness={0.8} roughness={0.3} />
+      </mesh>
+      <mesh position={[0, 5.12, 0]}>
+        <cylinderGeometry args={[0.85, 0.85, 0.05, 16]} />
+        <meshStandardMaterial color="#0f172a" wireframe />
+      </mesh>
+
+      {/* Rotating Fan Rotor Blades */}
+      <group ref={fanRef} position={[0, 5.35, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <mesh>
+          <cylinderGeometry args={[0.18, 0.18, 0.15, 10]} />
+          <meshStandardMaterial color="#0f172a" metalness={0.9} />
+        </mesh>
+        {[0, 1, 2, 3].map((b) => (
+          <mesh key={b} position={[0.38 * Math.cos(b * Math.PI / 2), 0.38 * Math.sin(b * Math.PI / 2), 0]} rotation={[0, 0, b * Math.PI / 2 + 0.3]}>
+            <boxGeometry args={[0.45, 0.16, 0.03]} />
+            <meshStandardMaterial color={isActive ? '#38bdf8' : '#64748b'} metalness={0.8} />
+          </mesh>
+        ))}
+      </group>
+
+      {/* Upward Airflow Indicators */}
+      {isActive && (
+        <group ref={airflowRef}>
+          {[-0.3, 0, 0.3].map((xOffset, i) => (
+            <mesh key={i} position={[xOffset, 4.8 + i * 0.4, 0]}>
+              <cylinderGeometry args={[0.08, 0.04, 0.3, 8]} />
+              <meshBasicMaterial color="#38bdf8" transparent opacity={0.65} />
+            </mesh>
+          ))}
+          <pointLight position={[0, 5.5, 0]} color="#00f0ff" intensity={1.2} distance={8} />
+        </group>
+      )}
+    </group>
+  );
+}
+
+// 3D Industrial Cooling Chiller with Dual Cooling Fans
+function CoolingChiller3D({ 
+  zoneId, 
+  position, 
+  isActive, 
+  onSelect 
+}: { 
+  zoneId: ZoneId; 
+  position: [number, number, number]; 
+  isActive: boolean; 
+  onSelect?: () => void; 
+}) {
+  const fansRef = useRef<THREE.Group>(null);
+
+  useFrame(() => {
+    if (fansRef.current && isActive) {
+      fansRef.current.children.forEach((f: any) => {
+        f.rotation.z += 0.32;
+      });
+    }
+  });
+
+  return (
+    <group 
+      position={position} 
+      onClick={(e) => { 
+        e.stopPropagation(); 
+        onSelect?.(); 
+      }}
+    >
+      <mesh position={[0, 1.2, 0]}>
+        <boxGeometry args={[2.0, 2.4, 1.2]} />
+        <meshStandardMaterial color={isActive ? '#1e3a8a' : '#1e293b'} metalness={0.7} roughness={0.3} />
+      </mesh>
+      <mesh position={[0, 1.2, 0.62]}>
+        <planeGeometry args={[1.7, 2.0]} />
+        <meshStandardMaterial color={isActive ? '#38bdf8' : '#334155'} roughness={0.5} wireframe />
+      </mesh>
+
+      {/* Twin Cooling Fans */}
+      <group ref={fansRef} position={[0, 1.2, 0.65]}>
+        {[-0.5, 0.5].map((yOff, i) => (
+          <group key={i} position={[0, yOff, 0]}>
+            <mesh>
+              <cylinderGeometry args={[0.35, 0.35, 0.04, 12]} />
+              <meshStandardMaterial color="#0f172a" wireframe />
+            </mesh>
+            {[0, 1, 2, 3].map((b) => (
+              <mesh key={b} position={[0.18 * Math.cos(b * Math.PI / 2), 0.18 * Math.sin(b * Math.PI / 2), 0]} rotation={[0, 0, b * Math.PI / 2]}>
+                <boxGeometry args={[0.24, 0.08, 0.02]} />
+                <meshStandardMaterial color={isActive ? '#60a5fa' : '#64748b'} />
+              </mesh>
+            ))}
+          </group>
+        ))}
+      </group>
+
+      {isActive && (
+        <pointLight position={[0, 1.2, 0.8]} color="#60a5fa" intensity={1.5} distance={7} />
+      )}
     </group>
   );
 }
@@ -616,20 +838,24 @@ function EvacuationRoute3D({ waypoints }: { waypoints: [number, number, number][
 
 export interface FacilityCanvasProps {
   zones: Record<ZoneId, ZoneState>;
+  responseActions?: Record<string, ZoneResponseAction>;
   fsmState: FSMState;
   selectedZoneId: ZoneId | null;
   cameraPreset: string;
   evacuationWaypoints?: [number, number, number][];
   onSelectZone: (zoneId: ZoneId) => void;
+  onSelectEquipment?: (equipment: { type: ResponseActionType; zoneId: ZoneId; name: string }) => void;
 }
 
 export const FacilityCanvas: React.FC<FacilityCanvasProps> = ({
   zones,
+  responseActions = {},
   fsmState,
   selectedZoneId,
   cameraPreset,
   evacuationWaypoints,
   onSelectZone,
+  onSelectEquipment,
 }) => {
   let ambientColor = '#38bdf8';
   let ambientIntensity = 0.5;
@@ -675,15 +901,73 @@ export const FacilityCanvas: React.FC<FacilityCanvasProps> = ({
           />
         ))}
 
+        {/* 3D Response Equipment & Environmental Particle Systems */}
         {(Object.keys(zones) as ZoneId[]).map((zoneId) => {
           const z = zones[zoneId];
-          const hasSmoke = z.sensors.smoke || z.sensors.smokeLevel > 20;
+          const hasSmoke = z.sensors.smoke || z.sensors.smokeLevel > 15;
           const isEmergency = z.status === 'EMERGENCY';
 
+          const sprinklerAction = responseActions[`ACT-SPRINKLER-${zoneId}`];
+          const ventAction = responseActions[`ACT-VENT-${zoneId}`];
+          const coolAction = responseActions[`ACT-COOL-${zoneId}`];
+          const alarmAction = responseActions[`ACT-ALARM-${zoneId}`];
+
+          const isSprinklerActive = sprinklerAction?.status === 'ACTIVE';
+          const isVentActive = ventAction?.status === 'ACTIVE';
+          const isCoolActive = coolAction?.status === 'ACTIVE';
+          const isStrobeActive = isEmergency || alarmAction?.status === 'ACTIVE';
+
+          const [zx, zy, zz] = z.config.gridPosition;
+
           return (
-            <group key={`effects-${zoneId}`}>
-              {hasSmoke && <SimulatedSmokeParticles position={z.config.gridPosition} />}
-              {isEmergency && (
+            <group key={`equipment-and-fx-${zoneId}`}>
+              {/* Dynamic Fire Sprinkler Grid with Animated Water Droplets */}
+              <SprinklerSystem3D
+                zoneId={zoneId}
+                position={z.config.gridPosition}
+                dimensions={z.config.dimensions}
+                isActive={isSprinklerActive}
+                onSelect={() => onSelectEquipment?.({
+                  type: 'SPRINKLERS',
+                  zoneId,
+                  name: sprinklerAction?.name || `${z.config.name} Sprinklers`
+                })}
+              />
+
+              {/* High-Velocity Rooftop/Ceiling Exhaust Extractor with Spinning Blades */}
+              <VentilationExtractor3D
+                zoneId={zoneId}
+                position={[zx, zy, zz - z.config.dimensions[2] / 4]}
+                isActive={isVentActive}
+                onSelect={() => onSelectEquipment?.({
+                  type: 'VENTILATION',
+                  zoneId,
+                  name: ventAction?.name || `${z.config.name} Ventilation`
+                })}
+              />
+
+              {/* Industrial Forced-Air Cooling Chiller */}
+              <CoolingChiller3D
+                zoneId={zoneId}
+                position={[zx + z.config.dimensions[0] / 2 - 1.2, zy, zz + z.config.dimensions[2] / 2 - 1.2]}
+                isActive={isCoolActive}
+                onSelect={() => onSelectEquipment?.({
+                  type: 'COOLING',
+                  zoneId,
+                  name: coolAction?.name || `${z.config.name} Cooling Chiller`
+                })}
+              />
+
+              {/* Dynamic Smoke Density scaled to real sensor levels */}
+              {hasSmoke && (
+                <SimulatedSmokeParticles 
+                  position={z.config.gridPosition} 
+                  smokeLevel={z.sensors.smokeLevel}
+                />
+              )}
+
+              {/* Optical Emergency Strobe Siren Beacon */}
+              {isStrobeActive && (
                 <EmergencySirenStrobe position={[z.config.gridPosition[0], 5.8, z.config.gridPosition[2]]} />
               )}
             </group>
@@ -695,3 +979,4 @@ export const FacilityCanvas: React.FC<FacilityCanvasProps> = ({
     </div>
   );
 };
+

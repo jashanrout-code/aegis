@@ -29,6 +29,9 @@ import { ZoneId, FSMState, FSMTransitionRecord } from '../types/simulation';
 import { evaluateFsmFromDEInputs } from '../logic/fsm';
 import { LogicCircuitVisualizer } from '../components/shared/LogicCircuitVisualizer';
 import { ControllerStateDiagram } from '../components/shared/ControllerStateDiagram';
+import { NandNorCircuitVisualizer } from '../components/shared/NandNorCircuitVisualizer';
+import { TimingDiagramViewer } from '../components/shared/TimingDiagramViewer';
+import { evaluateComparatorWithHysteresis, DEFAULT_THRESHOLDS } from '../logic/comparators';
 import { FSMStateBadge } from '../components/shared/StatusBadge';
 
 interface CustomStep {
@@ -52,6 +55,15 @@ export const SimulationStudio: React.FC = () => {
   const [incidentTab, setIncidentTab] = useState<'PRESETS' | 'CUSTOM'>('PRESETS');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [runningScenarioId, setRunningScenarioId] = useState<string | null>(null);
+
+  // Logic View Sub-Sections (Requirement 3: Primary Circuit, NAND/NOR, Timing Diagram, Comparator, FSM)
+  const [logicSubTab, setLogicSubTab] = useState<'PRIMARY_CIRCUIT' | 'NAND_NOR' | 'TIMING_DIAGRAM' | 'COMPARATOR' | 'FSM_AUTOMATON'>('PRIMARY_CIRCUIT');
+
+  // Comparator demonstration interactive states
+  const [compTemp, setCompTemp] = useState<number>(64.0);
+  const [compThreshold, setCompThreshold] = useState<number>(60.0);
+  const [compHysteresis, setCompHysteresis] = useState<number>(6.0);
+  const [compState, setCompState] = useState<boolean>(false);
 
   // Logic View Mode: Live Facility Sync vs Independent Sandbox Demonstration
   const [logicMode, setLogicMode] = useState<'LIVE_SYNC' | 'SANDBOX'>('LIVE_SYNC');
@@ -882,55 +894,278 @@ export const SimulationStudio: React.FC = () => {
             </div>
           )}
 
-          {/* 1. Logic Circuit Visualizer (Fully interactive in both Live Sync and Sandbox) */}
-          <LogicCircuitVisualizer
-            smoke={displayedSmoke}
-            tempHigh={displayedTempHigh}
-            manualEmergency={displayedManual}
-            isInteractive={true}
-            onInputChange={logicMode === 'LIVE_SYNC' ? handleLiveInputChange : updateSandboxInputs}
-            zoneName={logicMode === 'LIVE_SYNC' ? targetZone?.config.name : 'Sandbox Testbench'}
-            subtitle={logicMode === 'LIVE_SYNC' ? 'Direct telemetry feed from facility digital twin (toggles update live zone)' : 'Independent DE testbench (preserves historical incident records)'}
-            showTruthTableByDefault={true}
-          />
+          {/* DE Engineering Modules Navigation Tabs */}
+          <div className="flex flex-wrap items-center gap-2 border-b border-industrial-800 pb-2 text-xs">
+            {[
+              { id: 'PRIMARY_CIRCUIT', label: '1. Primary Decision Circuit E=S·(T+M)' },
+              { id: 'NAND_NOR', label: '2. Universal NAND & NOR Implementation' },
+              { id: 'TIMING_DIAGRAM', label: '3. Digital Timing Diagram & Clock Oscilloscope' },
+              { id: 'COMPARATOR', label: '4. Sensor Threshold Comparator' },
+              { id: 'FSM_AUTOMATON', label: '5. Controller FSM Automaton' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setLogicSubTab(tab.id as any)}
+                className={`px-3 py-1.5 rounded-md font-bold transition-all text-xs ${
+                  logicSubTab === tab.id
+                    ? 'bg-industrial-850 text-cyan-400 border border-cyan-500/40 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-industrial-950'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-          {/* 2. Compact Controller State Machine Visualizer (Responsive and Workable) */}
-          <ControllerStateDiagram
-            currentState={logicMode === 'LIVE_SYNC' ? simState.fsmState : sandboxFsmState}
-            previousState={logicMode === 'LIVE_SYNC' ? (simState.previousFSMState || 'NORMAL') : sandboxPrevFsmState}
-            lastTransition={logicMode === 'LIVE_SYNC' ? simState.lastFSMTransition : sandboxLastTransition}
-            transitionHistory={logicMode === 'LIVE_SYNC' ? (simState.fsmTransitionHistory || []) : sandboxTransitionHistory}
-            activeZoneId={targetZoneId}
-            isSandbox={logicMode === 'SANDBOX'}
-            onAcknowledge={
-              logicMode === 'LIVE_SYNC'
-                ? () => {
-                    const activeInc = simState.incidents.find(i => !i.resolved);
-                    if (activeInc) simulationStore.acknowledgeIncident(activeInc.id);
-                  }
-                : handleSandboxAcknowledge
-            }
-            onClearHazard={
-              logicMode === 'LIVE_SYNC'
-                ? () => simulationStore.clearHazardInZone(targetZoneId)
-                : handleSandboxClearHazard
-            }
-            onReset={
-              logicMode === 'LIVE_SYNC'
-                ? () => simulationStore.resetSimulation()
-                : handleSandboxReset
-            }
-            onTriggerEmergency={
-              logicMode === 'LIVE_SYNC'
-                ? handleTriggerConfluence
-                : () => updateSandboxInputs({ smoke: true, tempHigh: true, manualEmergency: false })
-            }
-            onTriggerWarning={
-              logicMode === 'LIVE_SYNC'
-                ? handleTriggerSmoke
-                : () => updateSandboxInputs({ smoke: true, tempHigh: false, manualEmergency: false })
-            }
-          />
+          {/* TAB 1: PRIMARY DECISION CIRCUIT */}
+          {logicSubTab === 'PRIMARY_CIRCUIT' && (
+            <div className="space-y-4">
+              <LogicCircuitVisualizer
+                smoke={displayedSmoke}
+                tempHigh={displayedTempHigh}
+                manualEmergency={displayedManual}
+                isInteractive={true}
+                onInputChange={logicMode === 'LIVE_SYNC' ? handleLiveInputChange : updateSandboxInputs}
+                zoneName={logicMode === 'LIVE_SYNC' ? targetZone?.config.name : 'Sandbox Testbench'}
+                subtitle={logicMode === 'LIVE_SYNC' ? 'Direct telemetry feed from facility digital twin (toggles update live zone)' : 'Independent DE testbench (preserves historical incident records)'}
+                showTruthTableByDefault={true}
+              />
+            </div>
+          )}
+
+          {/* TAB 2: UNIVERSAL NAND & NOR IMPLEMENTATION */}
+          {logicSubTab === 'NAND_NOR' && (
+            <div className="space-y-4">
+              <NandNorCircuitVisualizer />
+            </div>
+          )}
+
+          {/* TAB 3: DIGITAL TIMING DIAGRAM & CLOCK OSCILLOSCOPE */}
+          {logicSubTab === 'TIMING_DIAGRAM' && (
+            <div className="space-y-4">
+              <TimingDiagramViewer
+                timingHistory={simState.timingHistory}
+                clockRunning={simState.clockRunning}
+                clockFrequency={simState.clockFrequency}
+                currentClock={simState.clockState}
+                sequentialRegisterQ={simState.sequentialRegisterQ}
+                fsmState={simState.fsmState}
+              />
+            </div>
+          )}
+
+          {/* TAB 4: SENSOR THRESHOLD COMPARATOR (SCHMITT TRIGGER HYSTERESIS) */}
+          {logicSubTab === 'COMPARATOR' && (
+            <div className="bg-industrial-900 border border-industrial-800 rounded-lg p-5 font-mono select-none space-y-5 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-industrial-800">
+                <div className="flex items-center space-x-2 text-cyan-400">
+                  <Sliders className="w-4 h-4" />
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-100 uppercase tracking-wider">
+                      Analog-to-Digital Sensor Threshold Comparator
+                    </h3>
+                    <p className="text-[11px] text-slate-400 font-sans mt-0.5">
+                      Converts continuous sensor voltage / telemetry into discrete Boolean logic levels with noise-immune hysteresis.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => {
+                      setCompTemp(64.0);
+                      setCompThreshold(60.0);
+                      setCompHysteresis(6.0);
+                      setCompState(false);
+                    }}
+                    className="px-2.5 py-1 text-xs rounded bg-industrial-950 hover:bg-industrial-850 text-slate-400 border border-industrial-800 flex items-center space-x-1"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset Thresholds</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Comparator Calculation */}
+              {(() => {
+                const isTripped = evaluateComparatorWithHysteresis(compTemp, compThreshold, compHysteresis, compState);
+                if (isTripped !== compState) {
+                  setCompState(isTripped);
+                }
+
+                const clearLevel = compThreshold - compHysteresis;
+
+                return (
+                  <div className="space-y-5">
+                    {/* Metrics Status Banner */}
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                      <div className="p-3 rounded bg-industrial-950 border border-industrial-800">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold">Measured Analog Signal</span>
+                        <div className="text-lg font-extrabold text-cyan-400 mt-0.5">
+                          {compTemp.toFixed(1)}°C
+                        </div>
+                        <span className="text-[10px] text-slate-400">Thermistor RTD Input</span>
+                      </div>
+
+                      <div className="p-3 rounded bg-industrial-950 border border-industrial-800">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold">Trip Threshold (V_ref)</span>
+                        <div className="text-lg font-extrabold text-amber-400 mt-0.5">
+                          {compThreshold.toFixed(1)}°C
+                        </div>
+                        <span className="text-[10px] text-slate-400">Comparator Reference</span>
+                      </div>
+
+                      <div className="p-3 rounded bg-industrial-950 border border-industrial-800">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold">Hysteresis Clear Level</span>
+                        <div className="text-lg font-extrabold text-slate-300 mt-0.5">
+                          {clearLevel.toFixed(1)}°C
+                        </div>
+                        <span className="text-[10px] text-slate-400">ΔH = {compHysteresis.toFixed(1)}°C deadband</span>
+                      </div>
+
+                      <div className={`p-3 rounded border flex flex-col justify-between ${
+                        isTripped 
+                          ? 'bg-red-950/50 border-red-800 text-red-200' 
+                          : 'bg-emerald-950/40 border-emerald-800 text-emerald-200'
+                      }`}>
+                        <span className="text-[10px] opacity-75 uppercase font-bold">Digital Output H</span>
+                        <div className="text-base font-extrabold">
+                          H = {isTripped ? '1 (TRIP HIGH TEMP)' : '0 (NORMAL)'}
+                        </div>
+                        <span className="text-[10px] opacity-80">
+                          {isTripped ? 'Trips primary logic S ∧ (T ∨ M)' : 'Below reference threshold'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Interactive Sliders */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5 p-4 rounded-lg bg-industrial-950 border border-industrial-800 text-xs">
+                      {/* Temp Reading Slider */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <label className="text-slate-300 font-bold">Simulated Reading (T):</label>
+                          <span className="text-cyan-400 font-bold">{compTemp.toFixed(1)}°C</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="20"
+                          max="120"
+                          step="0.5"
+                          value={compTemp}
+                          onChange={(e) => setCompTemp(parseFloat(e.target.value))}
+                          className="w-full accent-cyan-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-slate-500">
+                          <span>20°C (Ambient)</span>
+                          <span>120°C (Critical)</span>
+                        </div>
+                      </div>
+
+                      {/* Threshold Slider */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <label className="text-slate-300 font-bold">Reference Threshold (V_ref):</label>
+                          <span className="text-amber-400 font-bold">{compThreshold.toFixed(1)}°C</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="40"
+                          max="90"
+                          step="1.0"
+                          value={compThreshold}
+                          onChange={(e) => setCompThreshold(parseFloat(e.target.value))}
+                          className="w-full accent-amber-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-slate-500">
+                          <span>40°C</span>
+                          <span>90°C</span>
+                        </div>
+                      </div>
+
+                      {/* Hysteresis Slider */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <label className="text-slate-300 font-bold">Hysteresis Margin (ΔH):</label>
+                          <span className="text-purple-400 font-bold">{compHysteresis.toFixed(1)}°C</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="2"
+                          max="12"
+                          step="0.5"
+                          value={compHysteresis}
+                          onChange={(e) => setCompHysteresis(parseFloat(e.target.value))}
+                          className="w-full accent-purple-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-slate-500">
+                          <span>2°C (Tight)</span>
+                          <span>12°C (Wide)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Integrated Mode Action */}
+                    <div className="p-3 rounded bg-industrial-950 border border-industrial-800 flex items-center justify-between text-xs">
+                      <div className="text-slate-400 font-sans">
+                        <span>Apply measured reading <strong className="text-slate-200 font-mono">{compTemp.toFixed(1)}°C</strong> directly to monitored zone <strong className="text-cyan-400 font-mono">{targetZone?.config.name}</strong></span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          simulationStore.setAnalogLevel(targetZoneId, 'temperature', compTemp);
+                        }}
+                        className="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-industrial-950 font-bold text-xs flex items-center space-x-1.5 transition-colors"
+                      >
+                        <span>Inject into Live Facility</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* TAB 5: CONTROLLER FSM AUTOMATON */}
+          {logicSubTab === 'FSM_AUTOMATON' && (
+            <div className="space-y-4">
+              <ControllerStateDiagram
+                currentState={logicMode === 'LIVE_SYNC' ? simState.fsmState : sandboxFsmState}
+                previousState={logicMode === 'LIVE_SYNC' ? (simState.previousFSMState || 'NORMAL') : sandboxPrevFsmState}
+                lastTransition={logicMode === 'LIVE_SYNC' ? simState.lastFSMTransition : sandboxLastTransition}
+                transitionHistory={logicMode === 'LIVE_SYNC' ? (simState.fsmTransitionHistory || []) : sandboxTransitionHistory}
+                activeZoneId={targetZoneId}
+                isSandbox={logicMode === 'SANDBOX'}
+                onAcknowledge={
+                  logicMode === 'LIVE_SYNC'
+                    ? () => {
+                        const activeInc = simState.incidents.find(i => !i.resolved);
+                        if (activeInc) simulationStore.acknowledgeIncident(activeInc.id);
+                      }
+                    : handleSandboxAcknowledge
+                }
+                onClearHazard={
+                  logicMode === 'LIVE_SYNC'
+                    ? () => simulationStore.clearHazardInZone(targetZoneId)
+                    : handleSandboxClearHazard
+                }
+                onReset={
+                  logicMode === 'LIVE_SYNC'
+                    ? () => simulationStore.resetSimulation()
+                    : handleSandboxReset
+                }
+                onTriggerEmergency={
+                  logicMode === 'LIVE_SYNC'
+                    ? handleTriggerConfluence
+                    : () => updateSandboxInputs({ smoke: true, tempHigh: true, manualEmergency: false })
+                }
+                onTriggerWarning={
+                  logicMode === 'LIVE_SYNC'
+                    ? handleTriggerSmoke
+                    : () => updateSandboxInputs({ smoke: true, tempHigh: false, manualEmergency: false })
+                }
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

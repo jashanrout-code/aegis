@@ -17,11 +17,17 @@ import {
   ZoneSensors,
   ZoneLogicOutputs,
   HistorySnapshot,
+  ZoneResponseAction,
+  ResponseActionType,
+  TimingSignalSample,
 } from '../types/simulation';
 import { 
   evaluatePrimaryAlarmRule, 
   evaluateStage1WarningRule, 
-  evaluateVentilationRule 
+  evaluateVentilationRule,
+  NAND,
+  NOR,
+  evaluateNandOnlyOr,
 } from '../logic/gates';
 import { 
   evaluateComparatorWithHysteresis, 
@@ -135,6 +141,102 @@ export interface SimulationState {
   activeEvacuationRoute: EvacuationRouteResult | null;
   historySnapshots: HistorySnapshot[];
   faultInjection: FaultInjectionState;
+  responseActions: Record<string, ZoneResponseAction>;
+  clockRunning: boolean;
+  clockFrequency: number;
+  clockState: boolean;
+  sequentialRegisterQ: boolean;
+  timingHistory: TimingSignalSample[];
+}
+
+export function createDefaultResponseActions(): Record<string, ZoneResponseAction> {
+  const actions: Record<string, ZoneResponseAction> = {};
+  const zoneIds: ZoneId[] = ['ZONE_PROD', 'ZONE_POWER', 'ZONE_STORAGE', 'ZONE_CTRL', 'ZONE_UTIL', 'ZONE_EXIT'];
+
+  zoneIds.forEach(zId => {
+    const config = INITIAL_ZONE_CONFIGS[zId];
+    const name = config.name;
+
+    // 1. Sprinkler / Fire Suppression
+    const isWaterSprinklerSafe = zId !== 'ZONE_POWER';
+    actions[`ACT-SPRINKLER-${zId}`] = {
+      id: `ACT-SPRINKLER-${zId}`,
+      type: 'SPRINKLERS',
+      name: `${name}: Fire Deluge Sprinklers`,
+      zoneId: zId,
+      status: 'STANDBY',
+      progress: 0,
+      activatedAt: null,
+      completedAt: null,
+      description: isWaterSprinklerSafe 
+        ? 'High-pressure overhead water sprinkler heads & foam deluge loop.'
+        : 'CO2 inert gas suppression bank (water sprinklers locked due to high-voltage equipment).',
+      expectedEffect: 'Actively sprays fire suppressant, quenching flames and gradually lowering temperature and smoke.',
+      isAvailable: true,
+    };
+
+    // 2. Smoke Ventilation & Air Extraction
+    actions[`ACT-VENT-${zId}`] = {
+      id: `ACT-VENT-${zId}`,
+      type: 'VENTILATION',
+      name: `${name}: High-Velocity Smoke Exhaust`,
+      zoneId: zId,
+      status: 'STANDBY',
+      progress: 0,
+      activatedAt: null,
+      completedAt: null,
+      description: 'Motorized ceiling exhaust dampers & high-flow industrial suction fans.',
+      expectedEffect: 'Opens exhaust louvers and spins extractor fans, gradually expelling smoke and toxic combustion gases.',
+      isAvailable: true,
+    };
+
+    // 3. Forced Thermal Cooling
+    actions[`ACT-COOL-${zId}`] = {
+      id: `ACT-COOL-${zId}`,
+      type: 'COOLING',
+      name: `${name}: Industrial Chiller Fans`,
+      zoneId: zId,
+      status: 'STANDBY',
+      progress: 0,
+      activatedAt: null,
+      completedAt: null,
+      description: 'Chilled refrigerant forced-air circulation and radiator cooling units.',
+      expectedEffect: 'Activates auxiliary cooling fans, steadily bringing ambient and machinery heat down to safe levels.',
+      isAvailable: true,
+    };
+
+    // 4. Power Isolation
+    actions[`ACT-POWER-${zId}`] = {
+      id: `ACT-POWER-${zId}`,
+      type: 'POWER_ISOLATION',
+      name: `${name}: Emergency Power Shunt Trip`,
+      zoneId: zId,
+      status: 'STANDBY',
+      progress: 0,
+      activatedAt: null,
+      completedAt: null,
+      description: 'Trips main motor contactors and isolates high-voltage electrical feed lines.',
+      expectedEffect: 'De-energizes machinery, halting robotic cells and preventing electrical arc escalation.',
+      isAvailable: true,
+    };
+
+    // 5. Emergency Alarm & Optical Strobe
+    actions[`ACT-ALARM-${zId}`] = {
+      id: `ACT-ALARM-${zId}`,
+      type: 'ALARM_STROBE',
+      name: `${name}: High-Intensity Emergency Strobe`,
+      zoneId: zId,
+      status: 'STANDBY',
+      progress: 0,
+      activatedAt: null,
+      completedAt: null,
+      description: 'Synchronized xenon optical strobe beacons and directional evacuation acoustic horns.',
+      expectedEffect: 'Visibly flashes red emergency illumination and guides personnel toward nearest egress waypoints.',
+      isAvailable: true,
+    };
+  });
+
+  return actions;
 }
 
 type Listener = (state: SimulationState) => void;
@@ -182,6 +284,8 @@ class SimulationStore {
       };
     });
 
+    const responseActions = createDefaultResponseActions();
+
     return {
       zones,
       fsmState: 'NORMAL',
@@ -212,6 +316,29 @@ class SimulationStore {
         faultType: 'NONE',
         affectedSensor: 'smoke',
       },
+      responseActions,
+      clockRunning: true,
+      clockFrequency: 1.0,
+      clockState: false,
+      sequentialRegisterQ: false,
+      timingHistory: [
+        {
+          id: 'sample-0',
+          timestamp: 0,
+          clock: false,
+          inputA: false,
+          inputB: false,
+          smoke: false,
+          tempHigh: false,
+          manualEmergency: false,
+          nandOut: true,
+          norOut: true,
+          selectedCombOut: false,
+          primaryAlarmOut: false,
+          fsmState: 'NORMAL',
+          sequentialRegisterQ: false,
+        }
+      ],
     };
   }
 
@@ -294,6 +421,65 @@ class SimulationStore {
           if (affectedSensor === 'tempHigh') s.temperature += 2.0;
           if (affectedSensor === 'smoke') s.smokeLevel += 3.0;
         }
+      }
+
+      // Execute active response actions in this zone
+      const sprinklerAction = this.state.responseActions[`ACT-SPRINKLER-${zId}`];
+      if (sprinklerAction && sprinklerAction.status === 'ACTIVE') {
+        sprinklerAction.progress = Math.min(100, sprinklerAction.progress + 8);
+        if (s.smokeLevel > 4.5) s.smokeLevel = Math.max(4.5, s.smokeLevel - 3.5);
+        if (s.temperature > 24.2) s.temperature = Math.max(24.2, s.temperature - 4.0);
+        if (sprinklerAction.progress >= 100 && s.smokeLevel <= 5.0 && s.temperature <= 26.0) {
+          sprinklerAction.status = 'COMPLETED';
+          sprinklerAction.completedAt = Date.now();
+          this.addEvent({
+            category: 'SYSTEM',
+            zoneId: zId,
+            title: `Sprinkler Suppression Complete`,
+            details: `Water deluge cycle completed in ${z.config.name}. Fire suppressed.`,
+            severity: 'INFO',
+          });
+        }
+      }
+
+      const ventAction = this.state.responseActions[`ACT-VENT-${zId}`];
+      if (ventAction && ventAction.status === 'ACTIVE') {
+        ventAction.progress = Math.min(100, ventAction.progress + 7);
+        if (s.smokeLevel > 4.5) s.smokeLevel = Math.max(4.5, s.smokeLevel - 4.5);
+        if (ventAction.progress >= 100 && s.smokeLevel <= 5.0) {
+          ventAction.status = 'COMPLETED';
+          ventAction.completedAt = Date.now();
+          this.addEvent({
+            category: 'SYSTEM',
+            zoneId: zId,
+            title: `Smoke Ventilation Purge Complete`,
+            details: `High-velocity exhaust purged toxic smoke in ${z.config.name}.`,
+            severity: 'INFO',
+          });
+        }
+      }
+
+      const coolAction = this.state.responseActions[`ACT-COOL-${zId}`];
+      if (coolAction && coolAction.status === 'ACTIVE') {
+        coolAction.progress = Math.min(100, coolAction.progress + 6);
+        if (s.temperature > 24.2) s.temperature = Math.max(24.2, s.temperature - 3.8);
+        if (coolAction.progress >= 100 && s.temperature <= 26.0) {
+          coolAction.status = 'COMPLETED';
+          coolAction.completedAt = Date.now();
+          this.addEvent({
+            category: 'SYSTEM',
+            zoneId: zId,
+            title: `Thermal Cooling Complete`,
+            details: `Forced-air cooling restored safe ambient temperature in ${z.config.name}.`,
+            severity: 'INFO',
+          });
+        }
+      }
+
+      const powerAction = this.state.responseActions[`ACT-POWER-${zId}`];
+      if (powerAction && powerAction.status === 'ACTIVE') {
+        powerAction.progress = 100;
+        z.outputs.powerShutdown = true;
       }
 
       // 1. Digital Comparators: Convert analog to digital
@@ -488,7 +674,48 @@ class SimulationStore {
       this.state.activeEvacuationRoute = calculateEvacuationRoute(this.state.selectedZoneId, hazardZones);
     }
 
-    // 7. Store time-travel snapshot
+    // 7. Advance Clock & Sample Digital Timing Waveforms
+    const prevClock = this.state.clockState;
+    if (this.state.clockRunning) {
+      // Periodic clock pulse toggles each tick
+      this.state.clockState = !this.state.clockState;
+    }
+    const currentClock = this.state.clockState;
+
+    // Sequential D Flip-Flop: On rising clock edge (0 -> 1), latch D input
+    const targetZoneId = this.state.selectedZoneId || 'ZONE_PROD';
+    const activeZone = this.state.zones[targetZoneId];
+    if (!prevClock && currentClock && activeZone) {
+      this.state.sequentialRegisterQ = activeZone.sensors.smoke;
+    }
+
+    if (activeZone) {
+      const inputA = activeZone.sensors.smoke;
+      const inputB = activeZone.sensors.tempHigh;
+      const sample: TimingSignalSample = {
+        id: `sample-${this.state.tickCount}`,
+        timestamp: this.state.uptimeSeconds,
+        clock: currentClock,
+        inputA,
+        inputB,
+        smoke: inputA,
+        tempHigh: inputB,
+        manualEmergency: activeZone.sensors.manualEmergency,
+        nandOut: NAND(inputA, inputB),
+        norOut: NOR(inputA, inputB),
+        selectedCombOut: evaluateNandOnlyOr(inputA, inputB).output,
+        primaryAlarmOut: activeZone.outputs.alarmStage2,
+        fsmState: this.state.fsmState,
+        sequentialRegisterQ: this.state.sequentialRegisterQ,
+      };
+
+      this.state.timingHistory.push(sample);
+      if (this.state.timingHistory.length > 60) {
+        this.state.timingHistory.shift();
+      }
+    }
+
+    // 8. Store time-travel snapshot
     this.recordSnapshot();
 
     this.notify();
@@ -519,6 +746,7 @@ class SimulationStore {
       affectedZones: hazardZones,
       activeIncidentId: this.state.selectedIncidentId,
       events: this.state.events.map(e => ({ ...e })),
+      responseActions: Object.fromEntries(Object.entries(this.state.responseActions).map(([k, v]) => [k, { ...v }])),
     };
 
     this.state.historySnapshots.push(snapshot);
@@ -830,6 +1058,169 @@ class SimulationStore {
       severity: fault.faultType === 'NONE' ? 'INFO' : 'WARNING',
     });
     this.tick();
+  }
+
+  /**
+   * Activate an industrial emergency response action (Sprinklers, Ventilation, Cooling, etc.)
+   */
+  public activateResponseAction(actionId: string) {
+    const action = this.state.responseActions[actionId];
+    if (!action) return;
+
+    if (!action.isAvailable) {
+      this.addEvent({
+        category: 'OPERATOR',
+        zoneId: action.zoneId,
+        title: `Response Action Unavailable: ${action.name}`,
+        details: action.unavailableReason || 'Action cannot be activated under current configuration.',
+        severity: 'WARNING',
+      });
+      return;
+    }
+
+    action.status = 'ACTIVE';
+    action.activatedAt = Date.now();
+    action.progress = Math.max(10, action.progress);
+
+    // If there is an active incident in this zone, record in timeline
+    const zone = this.state.zones[action.zoneId];
+    if (zone && zone.activeIncidentId) {
+      const inc = this.state.incidents.find(i => i.id === zone.activeIncidentId);
+      if (inc) {
+        inc.historyTimeline.push({
+          timestamp: Date.now(),
+          action: `Response Activated: ${action.name}`,
+          description: `Operator triggered ${action.name}. Environmental suppression initiated.`,
+          user: 'Operations Supervisor',
+        });
+      }
+    }
+
+    this.addEvent({
+      category: 'OPERATOR',
+      zoneId: action.zoneId,
+      title: `Response Activated: ${action.name}`,
+      details: `${action.name} is now ACTIVE in ${zone?.config.name || action.zoneId}.`,
+      severity: 'INFO',
+    });
+
+    audioService.playClick();
+    this.tick();
+  }
+
+  /**
+   * Deactivate a running response action
+   */
+  public deactivateResponseAction(actionId: string) {
+    const action = this.state.responseActions[actionId];
+    if (!action) return;
+
+    action.status = 'STANDBY';
+    const zone = this.state.zones[action.zoneId];
+
+    if (zone && zone.activeIncidentId) {
+      const inc = this.state.incidents.find(i => i.id === zone.activeIncidentId);
+      if (inc) {
+        inc.historyTimeline.push({
+          timestamp: Date.now(),
+          action: `Response Deactivated: ${action.name}`,
+          description: `Operator placed ${action.name} back to STANDBY.`,
+          user: 'Operations Supervisor',
+        });
+      }
+    }
+
+    this.addEvent({
+      category: 'OPERATOR',
+      zoneId: action.zoneId,
+      title: `Response Deactivated: ${action.name}`,
+      details: `${action.name} returned to STANDBY.`,
+      severity: 'INFO',
+    });
+
+    audioService.playClick();
+    this.tick();
+  }
+
+  /**
+   * Reset a response action's progress to 0 and STANDBY
+   */
+  public resetResponseAction(actionId: string) {
+    const action = this.state.responseActions[actionId];
+    if (!action) return;
+
+    action.status = 'STANDBY';
+    action.progress = 0;
+    action.activatedAt = null;
+    action.completedAt = null;
+    this.notify();
+  }
+
+  /**
+   * Clock Controls for Digital Electronics Timing Diagram
+   */
+  public toggleClockRunning() {
+    this.state.clockRunning = !this.state.clockRunning;
+    this.notify();
+  }
+
+  public setClockFrequency(freq: number) {
+    this.state.clockFrequency = freq;
+    this.notify();
+  }
+
+  public singleStepClockPulse() {
+    // Generate full clock pulse: 0 -> 1 -> 0 and trigger D-FF sequential update
+    const targetZoneId = this.state.selectedZoneId || 'ZONE_PROD';
+    const activeZone = this.state.zones[targetZoneId];
+    
+    // Rising edge: latch D
+    this.state.clockState = true;
+    if (activeZone) {
+      this.state.sequentialRegisterQ = activeZone.sensors.smoke;
+    }
+
+    const inputA = activeZone ? activeZone.sensors.smoke : false;
+    const inputB = activeZone ? activeZone.sensors.tempHigh : false;
+
+    const sampleHigh: TimingSignalSample = {
+      id: `sample-${this.state.tickCount}-high`,
+      timestamp: this.state.uptimeSeconds + 0.5,
+      clock: true,
+      inputA,
+      inputB,
+      smoke: inputA,
+      tempHigh: inputB,
+      manualEmergency: activeZone ? activeZone.sensors.manualEmergency : false,
+      nandOut: NAND(inputA, inputB),
+      norOut: NOR(inputA, inputB),
+      selectedCombOut: evaluateNandOnlyOr(inputA, inputB).output,
+      primaryAlarmOut: activeZone ? activeZone.outputs.alarmStage2 : false,
+      fsmState: this.state.fsmState,
+      sequentialRegisterQ: this.state.sequentialRegisterQ,
+    };
+    this.state.timingHistory.push(sampleHigh);
+
+    // Falling edge
+    this.state.clockState = false;
+    const sampleLow: TimingSignalSample = {
+      ...sampleHigh,
+      id: `sample-${this.state.tickCount}-low`,
+      timestamp: this.state.uptimeSeconds + 1.0,
+      clock: false,
+    };
+    this.state.timingHistory.push(sampleLow);
+
+    if (this.state.timingHistory.length > 60) {
+      this.state.timingHistory = this.state.timingHistory.slice(-60);
+    }
+
+    this.notify();
+  }
+
+  public clearTimingHistory() {
+    this.state.timingHistory = [];
+    this.notify();
   }
 }
 

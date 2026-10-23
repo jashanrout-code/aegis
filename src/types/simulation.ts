@@ -138,4 +138,40 @@ export interface HistorySnapshot {
   affectedZones: ZoneId[];
   activeIncidentId: string | null;
   events: SimulationEvent[];
+  responseActions?: Record<string, ZoneResponseAction>;
+}
+
+export type ResponseActionType = 'SPRINKLERS' | 'VENTILATION' | 'COOLING' | 'POWER_ISOLATION' | 'ALARM_STROBE';
+export type ResponseActionStatus = 'STANDBY' | 'ACTIVE' | 'COMPLETED' | 'UNAVAILABLE';
+
+export interface ZoneResponseAction {
+  id: string;
+  type: ResponseActionType;
+  name: string;
+  zoneId: ZoneId;
+  status: ResponseActionStatus;
+  progress: number; // 0 to 100
+  activatedAt: number | null;
+  completedAt: number | null;
+  description: string;
+  expectedEffect: string;
+  isAvailable: boolean;
+  unavailableReason?: string;
+}
+
+export interface TimingSignalSample {
+  id: string;
+  timestamp: number; // relative sim seconds or tick
+  clock: boolean;
+  inputA: boolean;
+  inputB: boolean;
+  smoke: boolean;
+  tempHigh: boolean;
+  manualEmergency: boolean;
+  nandOut: boolean;
+  norOut: boolean;
+  selectedCombOut: boolean;
+  primaryAlarmOut: boolean;
+  fsmState: FSMState;
+  sequentialRegisterQ: boolean;
 }

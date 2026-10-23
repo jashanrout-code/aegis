@@ -15,7 +15,11 @@ import {
   Radio,
   CheckCircle2,
   AlertOctagon,
-  ArrowRight
+  ArrowRight,
+  Activity,
+  GitCommit,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { SimulationState, simulationStore } from '../engine/simulationStore';
 import { LogicDiagram } from '../components/shared/LogicDiagram';
@@ -39,6 +43,7 @@ export const InvestigationCenter: React.FC = () => {
   const [isReplaying, setIsReplaying] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [forensicNotes, setForensicNotes] = useState<string>('');
+  const [isLogicTraceExpanded, setIsLogicTraceExpanded] = useState<boolean>(true);
 
   // Keep a ref to current index for event handlers and timer callbacks
   const snapshotIndexRef = useRef(snapshotIndex);
@@ -196,6 +201,93 @@ export const InvestigationCenter: React.FC = () => {
   const historicalEvents = availableEvents
     .filter((e) => e.timestamp <= snapshotSimTime)
     .filter((e) => !selectedIncident || e.zoneId === selectedIncident.zoneId || e.category === 'CONTROLLER' || e.category === 'ALARM');
+
+  // Response actions at this point in time
+  const currentResponseActions = activeSnapshot?.responseActions || simState.responseActions;
+  const zoneActions = Object.values(currentResponseActions).filter((a) => a.zoneId === targetZoneId);
+  const activeZoneActions = zoneActions.filter((a) => a.status === 'ACTIVE' || a.status === 'COMPLETED');
+
+  // AEGIS Logic Trace: 9-Step Causal Chain Evaluation (Section 3.F)
+  const traceSteps = [
+    {
+      step: 1,
+      title: 'Sensor Input Changes',
+      status: (smokeLevel > 25 || temperature > 55 || m) ? 'DEVIATED' : 'NOMINAL',
+      badgeColor: (smokeLevel > 25 || temperature > 55 || m) ? 'text-rose-400 bg-rose-950 border-rose-800' : 'text-slate-400 bg-industrial-950 border-industrial-800',
+      summary: `Smoke: ${smokeLevel.toFixed(1)}% | Temp: ${temperature.toFixed(1)}°C | Press: ${pressure.toFixed(1)} kPa | Manual: ${m ? '1' : '0'}`,
+      detail: 'Analog physical telemetry converted to digital binary states via ADC and Schmitt triggers.',
+    },
+    {
+      step: 2,
+      title: 'Comparator & Boolean Evaluation',
+      status: logicEval.intermediateOr ? 'TRIGGERED (1)' : 'QUIESCENT (0)',
+      badgeColor: logicEval.intermediateOr ? 'text-amber-400 bg-amber-950 border-amber-800' : 'text-slate-400 bg-industrial-950 border-industrial-800',
+      summary: `S=${s ? '1' : '0'}, T=${h ? '1' : '0'}, M=${m ? '1' : '0'} → Intermediate OR (T ∨ M) = ${logicEval.intermediateOr ? '1' : '0'}`,
+      detail: 'Analog threshold comparators evaluate against trigger setpoints and intermediate terms.',
+    },
+    {
+      step: 3,
+      title: 'Logic Output Changes',
+      status: logicEval.alarmOutput ? 'EMERGENCY (1)' : 'CLEAR (0)',
+      badgeColor: logicEval.alarmOutput ? 'text-red-400 bg-red-950 border-red-800 animate-pulse' : 'text-emerald-400 bg-emerald-950 border-emerald-800',
+      summary: `E = S ∧ (T ∨ M) → Gate Output: ${logicEval.alarmOutput ? 'HIGH (1)' : 'LOW (0)'}`,
+      detail: 'Combinational logic gate evaluates critical confluence to produce alarm signal E.',
+    },
+    {
+      step: 4,
+      title: 'Controller Evaluates Event',
+      status: zoneOutputs?.alarmStage2 ? 'STAGE 2 EVAC' : zoneOutputs?.alarmStage1 ? 'STAGE 1 ALERT' : 'NOMINAL',
+      badgeColor: zoneOutputs?.alarmStage2 ? 'text-red-400 bg-red-950 border-red-800' : zoneOutputs?.alarmStage1 ? 'text-amber-400 bg-amber-950 border-amber-800' : 'text-slate-400 bg-industrial-950 border-industrial-800',
+      summary: `Klaxon: ${zoneOutputs?.alarmStage2 ? 'ACTIVE' : 'OFF'} | Doors: ${zoneOutputs?.exitDoorUnlock ? 'UNLOCKED' : 'SECURE'} | Priority: Ch ${zoneOutputs?.encodedPriority ?? 0}`,
+      detail: 'Supervisory industrial logic decodes priority encoder and commands zone actuator registers.',
+    },
+    {
+      step: 5,
+      title: 'FSM Transitions',
+      status: inspectedFsmState,
+      badgeColor: inspectedFsmState === 'ALARM_STAGE_2' ? 'text-red-400 bg-red-950 border-red-800' : inspectedFsmState === 'WARNING' || inspectedFsmState === 'ALARM_STAGE_1' || inspectedFsmState === 'RECOVERY' ? 'text-amber-400 bg-amber-950 border-amber-800' : 'text-emerald-400 bg-emerald-950 border-emerald-800',
+      summary: `FSM State: ${inspectedFsmState} (Reason: ${activeSnapshot?.lastFSMTransition?.reason || simState.lastFSMTransition?.reason || 'Nominal Operation'})`,
+      detail: 'Finite State Machine transition condition satisfied; supervisory state updated.',
+    },
+    {
+      step: 6,
+      title: 'Incident Created or Updated',
+      status: selectedIncident ? selectedIncident.status : 'MONITORING',
+      badgeColor: selectedIncident?.status === 'ACTIVE' || selectedIncident?.status === 'DETECTED' ? 'text-red-400 bg-red-950 border-red-800' : selectedIncident ? 'text-cyan-400 bg-cyan-950 border-cyan-800' : 'text-slate-400 bg-industrial-950 border-industrial-800',
+      summary: selectedIncident ? `Incident ${selectedIncident.id} [${selectedIncident.severity}] - ${selectedIncident.zoneName}` : 'No active incident logged for current snapshot',
+      detail: 'Incident dossier created/updated in timeline with full telemetry and sensor history.',
+    },
+    {
+      step: 7,
+      title: 'Operator Activates Response',
+      status: activeZoneActions.length > 0 ? `${activeZoneActions.length} ACTIVE` : 'STANDBY',
+      badgeColor: activeZoneActions.length > 0 ? 'text-cyan-400 bg-cyan-950 border-cyan-800' : 'text-slate-400 bg-industrial-950 border-industrial-800',
+      summary: activeZoneActions.length > 0 
+        ? activeZoneActions.map(a => a.name.split(':')[1]?.trim() || a.type).join(', ')
+        : 'Standby: No operator response action initiated for this zone yet',
+      detail: 'Operator triggers 3D-linked response controls (sprinklers, ventilation, cooling, isolation).',
+    },
+    {
+      step: 8,
+      title: 'Simulated Response Progresses',
+      status: activeZoneActions.some(a => a.progress >= 100) ? 'COMPLETED' : activeZoneActions.some(a => a.progress > 0) ? 'SUPPRESSING' : 'IDLE',
+      badgeColor: activeZoneActions.some(a => a.progress > 0) ? 'text-emerald-400 bg-emerald-950 border-emerald-800' : 'text-slate-400 bg-industrial-950 border-industrial-800',
+      summary: activeZoneActions.length > 0 
+        ? `Avg Progress: ${(activeZoneActions.reduce((acc, a) => acc + a.progress, 0) / activeZoneActions.length).toFixed(0)}% (Sensors gradually cooling/clearing)`
+        : 'Suppression system standing by at rest',
+      detail: 'Continuous state-driven environmental simulation suppresses heat and smoke.',
+    },
+    {
+      step: 9,
+      title: 'Recovery & Formal Closure',
+      status: selectedIncident?.status === 'CLOSED' ? 'CLOSED' : (smokeLevel <= 15 && temperature <= 45 && !m) ? 'ELIGIBLE' : 'PENDING',
+      badgeColor: selectedIncident?.status === 'CLOSED' ? 'text-slate-400 bg-industrial-950 border-industrial-800' : (smokeLevel <= 15 && temperature <= 45 && !m) ? 'text-emerald-400 bg-emerald-950 border-emerald-800' : 'text-amber-400 bg-amber-950 border-amber-800',
+      summary: (smokeLevel <= 15 && temperature <= 45 && !m)
+        ? (selectedIncident?.status === 'CLOSED' ? 'Hazard neutralized. Incident closed and archived.' : 'Hazard cleared. Requires explicit operator verification.')
+        : 'Active hazard condition remains in zone. Incident closure inhibited.',
+      detail: 'Deterministic recovery protocol prevents premature incident closure until verified by operator.',
+    },
+  ];
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto select-none font-mono">
@@ -396,6 +488,61 @@ export const InvestigationCenter: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* AEGIS Logic Trace: 9-Step Causal Sequence (Section 3.F) */}
+      <div className="bg-industrial-900 border border-industrial-800 rounded-lg p-4 space-y-3 shadow-lg">
+        <div className="flex items-center justify-between pb-2 border-b border-industrial-800">
+          <div className="flex items-center space-x-2">
+            <Activity className="w-4 h-4 text-cyan-400" />
+            <h2 className="text-xs font-bold text-slate-100 uppercase tracking-wider">
+              AEGIS Logic Trace — 9-Step Causal Progression Sequence
+            </h2>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-400">
+              AUDIT TRAIL
+            </span>
+          </div>
+          <button
+            onClick={() => setIsLogicTraceExpanded(!isLogicTraceExpanded)}
+            className="flex items-center space-x-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            <span>{isLogicTraceExpanded ? 'Collapse' : 'Expand'} Trace</span>
+            {isLogicTraceExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {isLogicTraceExpanded && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1">
+            {traceSteps.map((step) => (
+              <div 
+                key={step.step}
+                className="p-2.5 rounded bg-industrial-950 border border-industrial-800 flex flex-col justify-between space-y-2 hover:border-industrial-700 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-1.5">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="w-4 h-4 rounded-full bg-cyan-950 border border-cyan-800 text-cyan-400 text-[10px] flex items-center justify-center font-bold">
+                      {step.step}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-200 leading-tight">
+                      {step.title}
+                    </span>
+                  </div>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold border uppercase shrink-0 ${step.badgeColor}`}>
+                    {step.status}
+                  </span>
+                </div>
+
+                <div className="text-[10px] font-mono text-cyan-300/90 bg-industrial-900/60 p-1.5 rounded border border-industrial-850">
+                  {step.summary}
+                </div>
+
+                <p className="text-[9px] text-slate-500 font-sans leading-tight">
+                  {step.detail}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Main Analysis Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

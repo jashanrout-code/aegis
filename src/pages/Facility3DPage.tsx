@@ -14,7 +14,12 @@ import {
   Check, 
   Layers,
   Cpu,
-  CornerDownRight
+  CornerDownRight,
+  Droplets,
+  Wind,
+  Snowflake,
+  Power,
+  Bell
 } from 'lucide-react';
 import { SimulationState, simulationStore } from '../engine/simulationStore';
 import { FacilityCanvas, CAMERA_PRESETS } from '../components/3d/FacilityCanvas';
@@ -42,11 +47,16 @@ export const Facility3DPage: React.FC = () => {
       <div className="flex-1 h-full relative">
         <FacilityCanvas
           zones={simState.zones}
+          responseActions={simState.responseActions}
           fsmState={simState.fsmState}
           selectedZoneId={simState.selectedZoneId}
           cameraPreset={cameraPreset}
           evacuationWaypoints={simState.activeEvacuationRoute?.waypoints}
           onSelectZone={(zoneId) => simulationStore.selectZone(zoneId)}
+          onSelectEquipment={(eq) => {
+            simulationStore.selectZone(eq.zoneId);
+            setIsDrawerOpen(true);
+          }}
         />
 
         {/* Top Floating Camera Toolbar */}
@@ -277,6 +287,184 @@ export const Facility3DPage: React.FC = () => {
               manualEmergency={selectedZone.sensors.manualEmergency}
               zoneName={selectedZone.config.name}
             />
+
+            {/* Live 3D Emergency Response Controls */}
+            <div className="space-y-3 p-3 rounded-lg bg-industrial-950 border border-industrial-800">
+              <div className="flex items-center justify-between pb-1 border-b border-industrial-800">
+                <div className="flex items-center space-x-1.5 text-cyan-400">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-200">
+                    Live 3D Emergency Responses
+                  </span>
+                </div>
+                <span className="text-[10px] text-cyan-500 font-mono">3D STATE LINKED</span>
+              </div>
+
+              {/* Fire Suppression Sprinklers */}
+              {(() => {
+                const actionId = `ACT-SPRINKLER-${selectedZoneId}`;
+                const action = simState.responseActions[actionId];
+                const isActive = action?.status === 'ACTIVE';
+                const isCompleted = action?.status === 'COMPLETED';
+
+                return (
+                  <div className="p-2.5 rounded bg-industrial-900 border border-industrial-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Droplets className={`w-3.5 h-3.5 ${isActive ? 'text-cyan-400 animate-bounce' : 'text-slate-400'}`} />
+                        <span className="font-bold text-xs text-slate-200">Fire Deluge Sprinklers</span>
+                      </div>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                        isActive ? 'bg-cyan-950 text-cyan-300 border border-cyan-800' :
+                        isCompleted ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' :
+                        'bg-slate-900 text-slate-500'
+                      }`}>
+                        {action?.status || 'STANDBY'}
+                      </span>
+                    </div>
+
+                    <div className="w-full bg-industrial-950 h-1.5 rounded-full overflow-hidden border border-industrial-800">
+                      <div 
+                        className="bg-cyan-500 h-full transition-all duration-300"
+                        style={{ width: `${action?.progress || 0}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-slate-400">
+                        {isActive ? 'Spraying water droplets in 3D...' : isCompleted ? 'Suppression cycle complete' : 'Ready for activation'}
+                      </span>
+                      <button
+                        onClick={() => {
+                          if (isActive) {
+                            simulationStore.deactivateResponseAction(actionId);
+                          } else {
+                            simulationStore.activateResponseAction(actionId);
+                          }
+                        }}
+                        className={`px-2.5 py-1 text-[11px] rounded font-bold transition-all ${
+                          isActive 
+                            ? 'bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800' 
+                            : 'bg-cyan-600 hover:bg-cyan-500 text-industrial-950'
+                        }`}
+                      >
+                        {isActive ? 'DEACTIVATE' : 'ACTIVATE SPRINKLERS'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Smoke Ventilation Louvers & Fans */}
+              {(() => {
+                const actionId = `ACT-VENT-${selectedZoneId}`;
+                const action = simState.responseActions[actionId];
+                const isActive = action?.status === 'ACTIVE';
+                const isCompleted = action?.status === 'COMPLETED';
+
+                return (
+                  <div className="p-2.5 rounded bg-industrial-900 border border-industrial-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Wind className={`w-3.5 h-3.5 ${isActive ? 'text-cyan-400 animate-spin' : 'text-slate-400'}`} />
+                        <span className="font-bold text-xs text-slate-200">High-Flow Smoke Ventilation</span>
+                      </div>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                        isActive ? 'bg-cyan-950 text-cyan-300 border border-cyan-800' :
+                        isCompleted ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' :
+                        'bg-slate-900 text-slate-500'
+                      }`}>
+                        {action?.status || 'STANDBY'}
+                      </span>
+                    </div>
+
+                    <div className="w-full bg-industrial-950 h-1.5 rounded-full overflow-hidden border border-industrial-800">
+                      <div 
+                        className="bg-sky-500 h-full transition-all duration-300"
+                        style={{ width: `${action?.progress || 0}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-slate-400">
+                        {isActive ? 'Spinning exhaust fan blades in 3D...' : isCompleted ? 'Smoke purged to safe levels' : 'Standby auto-dampers'}
+                      </span>
+                      <button
+                        onClick={() => {
+                          if (isActive) {
+                            simulationStore.deactivateResponseAction(actionId);
+                          } else {
+                            simulationStore.activateResponseAction(actionId);
+                          }
+                        }}
+                        className={`px-2.5 py-1 text-[11px] rounded font-bold transition-all ${
+                          isActive 
+                            ? 'bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800' 
+                            : 'bg-cyan-600 hover:bg-cyan-500 text-industrial-950'
+                        }`}
+                      >
+                        {isActive ? 'DEACTIVATE' : 'ACTIVATE VENTILATION'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Thermal Forced Cooling Fans */}
+              {(() => {
+                const actionId = `ACT-COOL-${selectedZoneId}`;
+                const action = simState.responseActions[actionId];
+                const isActive = action?.status === 'ACTIVE';
+                const isCompleted = action?.status === 'COMPLETED';
+
+                return (
+                  <div className="p-2.5 rounded bg-industrial-900 border border-industrial-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Snowflake className={`w-3.5 h-3.5 ${isActive ? 'text-blue-400 animate-pulse' : 'text-slate-400'}`} />
+                        <span className="font-bold text-xs text-slate-200">Thermal Chiller Cooling</span>
+                      </div>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                        isActive ? 'bg-blue-950 text-blue-300 border border-blue-800' :
+                        isCompleted ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' :
+                        'bg-slate-900 text-slate-500'
+                      }`}>
+                        {action?.status || 'STANDBY'}
+                      </span>
+                    </div>
+
+                    <div className="w-full bg-industrial-950 h-1.5 rounded-full overflow-hidden border border-industrial-800">
+                      <div 
+                        className="bg-blue-500 h-full transition-all duration-300"
+                        style={{ width: `${action?.progress || 0}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-slate-400">
+                        {isActive ? 'Chiller fans operating in 3D...' : isCompleted ? 'Heat reduced to safe baseline' : 'Forced-air cooling idle'}
+                      </span>
+                      <button
+                        onClick={() => {
+                          if (isActive) {
+                            simulationStore.deactivateResponseAction(actionId);
+                          } else {
+                            simulationStore.activateResponseAction(actionId);
+                          }
+                        }}
+                        className={`px-2.5 py-1 text-[11px] rounded font-bold transition-all ${
+                          isActive 
+                            ? 'bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800' 
+                            : 'bg-cyan-600 hover:bg-cyan-500 text-industrial-950'
+                        }`}
+                      >
+                        {isActive ? 'DEACTIVATE' : 'ACTIVATE COOLING'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
 
             {/* Calculated Digital Control Outputs */}
             <div className="space-y-2">
